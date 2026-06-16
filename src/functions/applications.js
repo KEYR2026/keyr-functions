@@ -76,7 +76,7 @@ function normalizePayload(data) {
     lastName: cleanText(data.lastName, 50),
     suffix: cleanText(data.suffix, 10),
     displayName: cleanText(data.displayName, 160),
-    email: cleanText(data.email, 120),
+    email: cleanText(data.email, 120) || null,
     stateCode: cleanText(data.stateCode, 10),
     requestedStartMode: cleanText(data.requestedStartMode, 30),
     requestedDepositIntent: cleanText(data.requestedDepositIntent, 100),
@@ -137,7 +137,7 @@ function validatePayload(payload) {
     return "Missing lastName.";
   }
 
-  if (!payload.email || !isValidEmail(payload.email)) {
+  if (typeof payload.email !== "string" || payload.email.trim() === "" || !isValidEmail(payload.email)) {
     return "Invalid email.";
   }
 
