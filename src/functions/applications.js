@@ -188,6 +188,7 @@ function buildCorsHeaders(origin) {
 // Function endpoint
 // ------------------------------
 app.http("applications", {
+  route: "applications",   // 👈 ADD THIS LINE
   methods: ["OPTIONS", "POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
@@ -237,6 +238,7 @@ app.http("applications", {
     }
 
     const payload = normalizePayload(data);
+    context.log("DEBUG EMAIL VALUE:", payload.email);
     const validationError = validatePayload(payload);
 
     if (validationError) {
