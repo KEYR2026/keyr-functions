@@ -57,7 +57,7 @@ function isAllowed(value, allowedValues) {
 }
 
 function normalizePayload(data) {
-  const payload = {
+  return {
     // base fields
     source: cleanText(data.source, 50),
     tier: cleanText(data.tier, 80),
@@ -103,12 +103,18 @@ function normalizePayload(data) {
     currentStage: "apply_submitted",
     status: "submitted"
   };
-
-  return payload;
 }
 
 function validatePayload(payload) {
-  const allowedStartModes = ["credit", "safe", "secured", "smartstart", "Smart Start", "Start Secured"];
+  const allowedStartModes = [
+    "credit",
+    "safe",
+    "secured",
+    "smartstart",
+    "Smart Start",
+    "Start Secured"
+  ];
+
   const allowedTiers = [
     "Anchor Base",
     "Anchor",
@@ -137,7 +143,11 @@ function validatePayload(payload) {
     return "Missing lastName.";
   }
 
-  if (typeof payload.email !== "string" || payload.email.trim() === "" || !isValidEmail(payload.email)) {
+  if (
+    typeof payload.email !== "string" ||
+    payload.email.trim() === "" ||
+    !isValidEmail(payload.email)
+  ) {
     return "Invalid email.";
   }
 
@@ -145,7 +155,10 @@ function validatePayload(payload) {
     return "Invalid ssnLast4.";
   }
 
-  if (payload.requestedStartMode && !isAllowed(payload.requestedStartMode, allowedStartModes)) {
+  if (
+    payload.requestedStartMode &&
+    !isAllowed(payload.requestedStartMode, allowedStartModes)
+  ) {
     return "Invalid requestedStartMode.";
   }
 
@@ -188,7 +201,7 @@ function buildCorsHeaders(origin) {
 // Function endpoint
 // ------------------------------
 app.http("applications", {
-  route: "applications",   // 👈 ADD THIS LINE
+  route: "applications",
   methods: ["OPTIONS", "POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
@@ -213,6 +226,7 @@ app.http("applications", {
     }
 
     const contentLength = Number(request.headers.get("content-length") || 0);
+
     if (contentLength > 25000) {
       return {
         status: 413,
@@ -238,7 +252,7 @@ app.http("applications", {
     }
 
     const payload = normalizePayload(data);
-    context.log("DEBUG EMAIL VALUE:", payload.email);
+
     const validationError = validatePayload(payload);
 
     if (validationError) {

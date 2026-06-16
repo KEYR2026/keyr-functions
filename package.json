@@ -1,14 +1,14 @@
 {
   "name": "keyr-functions",
   "version": "1.0.0",
-  "description": "",
+  "description": "KEYR Azure Functions backend",
+  "main": "src/functions/*.js",
   "scripts": {
     "start": "func start",
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {
-    "@azure/functions": "^4.0.0"
-  },
-  "devDependencies": {},
-  "main": "src/functions/*.js"
+    "@azure/functions": "^4.0.0",
+    "mssql": "^10.0.0"
+  }
 }
