@@ -1,6 +1,8 @@
 const { app } = require("@azure/functions");
 const sql = require("mssql");
 
+// 🔒 RATE LIMIT STORE (in-memory)
+const requestLog = new Map();
 // ------------------------------
 // Security / normalization helpers
 // ------------------------------
@@ -205,6 +207,30 @@ app.http("applications", {
   methods: ["OPTIONS", "POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
+    // ✅ CAPTURE CLIENT IP
+const ip = request.headers.get("x-forwarded-for") || "unknown";
+
+// 🚫 RATE LIMIT CHECK
+const now = Date.now();
+const windowMs = 60 * 1000; // 1 minute window
+const maxRequests = 10;
+
+const logs = requestLog.get(ip) || [];
+const recent = logs.filter(t => now - t < windowMs);
+
+if (recent.length >= maxRequests) {
+  context.log("RATE LIMIT TRIGGERED:", ip);
+
+  return {
+    status: 429,
+    headers: buildCorsHeaders(request.headers.get("origin") || ""),
+    jsonBody: { error: "Too many requests. Please try again later." }
+  };
+}
+
+// ✅ TRACK REQUEST
+recent.push(now);
+requestLog.set(ip, recent);
     const origin = request.headers.get("origin") || "";
     const headers = buildCorsHeaders(origin);
 
