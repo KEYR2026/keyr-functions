@@ -26,15 +26,16 @@ app.http("simProgress", {
     let pool;
 
     try {
-      const email = request.query && request.query.email;
+      const email = request.query.get("email");
 
       if (!email || !email.includes("@")) {
         return {
           status: 400,
           headers: corsHeaders,
           jsonBody: {
-            error: "Missing or invalid email query parameter",
-            example: "/api/sim/progress?email=chris.pendingspend@keyr-sim.test"
+            error: "Missing or invalid email query parameter.",
+            receivedEmail: email || null,
+            example: "/api/sim/progress?email=chris.pendingspend%40keyr-sim.test"
           }
         };
       }
@@ -56,14 +57,38 @@ app.http("simProgress", {
       const result = await pool
         .request()
         .input("email", sql.NVarChar(255), email)
-        .query(`SELECT TOP 1 * FROM dbo.vwSimReadinessSummary WHERE email = @email;`);
+        .query(`
+          SELECT TOP 1
+              sim_readiness_id,
+              sim_user_id,
+              sim_account_id,
+              first_name,
+              last_name,
+              email,
+              current_tier,
+              on_time_cycles_completed,
+              on_time_cycles_required,
+              on_time_status,
+              avg_utilization_percent,
+              utilization_target_percent,
+              utilization_status,
+              credit_score,
+              ascend_min_score,
+              apex_min_score,
+              credit_score_status,
+              readiness_indicator_count,
+              calculated_readiness_status,
+              next_focus_area
+          FROM dbo.vwSimReadinessSummary
+          WHERE email = @email;
+        `);
 
       if (!result.recordset || result.recordset.length === 0) {
         return {
           status: 404,
           headers: corsHeaders,
           jsonBody: {
-            error: "No simulated progress profile found for this email",
+            error: "No simulated progress profile found for this email.",
             email
           }
         };
@@ -81,7 +106,7 @@ app.http("simProgress", {
 
       return {
         status: 500,
-        headers: getCorsHeaders(),
+        headers: corsHeaders,
         jsonBody: {
           error: "Unable to load simulated progress data."
         }
