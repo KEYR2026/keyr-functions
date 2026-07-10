@@ -1,0 +1,7 @@
+POST https://keyr-dev-func-d3e5hbgxe4e2gcgk.centralus-01.azurewebsites.net/api/sim/ai-financial-coach
+Content-Type: application/json
+
+{
+  "email": "chris.pendingspend@keyr-sim.test",
+  "question": "I have two cards. Should I transfer the full 2500 from one card or split it between both?"
+}
