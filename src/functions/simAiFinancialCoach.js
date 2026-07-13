@@ -230,7 +230,7 @@ ${JSON.stringify(scenario || {}, null, 2)}
       content: userMessage
     }
   ],
-  temperature: 0.3
+  temperature: 1
 };
 
 if ((deployment || "").toLowerCase().includes("gpt-5")) {
