@@ -23,6 +23,26 @@ function normalizeEndpoint(endpoint) {
     .replace(/\/+$/, "");
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function ensureNameGreeting(text, firstName) {
+  const name = (firstName || "").trim();
+  const cleanText = (text || "").trim();
+
+  if (!name || !cleanText) {
+    return cleanText;
+  }
+
+  const namePattern = new RegExp(`^(hi|hello)\\s+${escapeRegExp(name)}\\b|^${escapeRegExp(name)}\\b`, "i");
+  if (namePattern.test(cleanText)) {
+    return cleanText;
+  }
+
+  return `Hi ${name}, ${cleanText.replace(/^[\s,.;:]+/, "")}`;
+}
+
 function classifyQuestionType(question) {
   const q = (question || "").toLowerCase();
 
@@ -295,11 +315,16 @@ async function generateAiCoachAnswer({
   scenario,
   routingReason
 }) {
+  const formattedDeterministicShortAnswer = ensureNameGreeting(
+    deterministicShortAnswer,
+    user?.first_name
+  );
+
   if (!azureAiEndpoint || !azureAiApiKey) {
     return {
       aiWasUsed: false,
       aiError: "Azure AI endpoint or API key is missing.",
-      shortAnswer: deterministicShortAnswer
+      shortAnswer: formattedDeterministicShortAnswer
     };
   }
 
@@ -421,7 +446,7 @@ ${JSON.stringify(scenario || {}, null, 2)}
       return {
         aiWasUsed: false,
         aiError: `Azure AI call failed with status ${aiResponse.status}: ${responseText}`,
-        shortAnswer: deterministicShortAnswer
+        shortAnswer: formattedDeterministicShortAnswer
       };
     }
 
@@ -431,16 +456,18 @@ ${JSON.stringify(scenario || {}, null, 2)}
       parsed?.choices?.[0]?.message?.content?.trim() ||
       deterministicShortAnswer;
 
+    const formattedAiShortAnswer = ensureNameGreeting(aiShortAnswer, user?.first_name);
+
     return {
       aiWasUsed: true,
       aiError: null,
-      shortAnswer: aiShortAnswer
+      shortAnswer: formattedAiShortAnswer
     };
   } catch (error) {
     return {
       aiWasUsed: false,
       aiError: error.message || "Azure AI call failed.",
-      shortAnswer: deterministicShortAnswer
+      shortAnswer: formattedDeterministicShortAnswer
     };
   }
 }
@@ -620,7 +647,10 @@ app.http("simAiFinancialCoach", {
         routingReason: routing.reason
 });
 
-      const finalShortAnswer = aiResult.shortAnswer || deterministicShortAnswer;
+      const finalShortAnswer = ensureNameGreeting(
+        aiResult.shortAnswer || deterministicShortAnswer,
+        user?.first_name
+      );
 
       const insertQuery =
         "INSERT INTO dbo.SimAiFinancialCoachResults (" +
@@ -678,7 +708,10 @@ app.http("simAiFinancialCoach", {
             totalTransferred: plan.totalTransferred,
             transferFee: plan.transferFee,
             allocations: plan.allocations,
-            deterministicShortAnswer,
+            deterministicShortAnswer: ensureNameGreeting(
+              deterministicShortAnswer,
+              user?.first_name
+            ),
             shortAnswer: finalShortAnswer,
             detailedReasoning: deterministicDetailedReasoning
           }
