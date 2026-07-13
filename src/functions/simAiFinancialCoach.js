@@ -67,7 +67,8 @@ function ensureNameGreeting(text, firstName) {
   const sentenceFixedText = lowerCasedText
     .replace(/\b(your|you|keyr)\b/gi, (match) => match.charAt(0).toUpperCase() + match.slice(1).toLowerCase())
     .replace(/\b(?:i|a|an|and|or|but|for|nor|so|yet|the|to|of|in|on|at|by|from|with|as|is|are|was|were|be|been|being|this|that|these|those|your|you)\b/gi, (match) => match.toLowerCase())
-    .replace(/^([a-z])/, (match) => match.toUpperCase());
+    .replace(/^([a-z])/, (match) => match.toUpperCase())
+    .replace(/([.!?]\s+)([a-z])/g, (match, p1, p2) => `${p1}${p2.toUpperCase()}`);
 
   return `Hi ${name}, ${sentenceFixedText}`.replace(/,\s+/g, ", ");
 }
