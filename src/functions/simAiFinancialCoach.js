@@ -42,7 +42,21 @@ function ensureNameGreeting(text, firstName) {
     return normalizedText;
   }
 
-  const trimmedText = normalizedText.replace(/^[\s,.;:]+/, "");
+  const rewrittenText = normalizedText
+    .replace(/\bthe member\b/gi, "you")
+    .replace(/\bthis member\b/gi, "you")
+    .replace(/\bmember's\b/gi, "your")
+    .replace(/\btheir\b/gi, "your")
+    .replace(/\bthey\b/gi, "you")
+    .replace(/\bthem\b/gi, "you")
+    .replace(/\btheir available credit\b/gi, "your available credit")
+    .replace(/\bthis member's\b/gi, "your")
+    .replace(/\bmember is\b/gi, "you are")
+    .replace(/\bmember's simulated outside-card utilization\b/gi, "your simulated outside-card utilization")
+    .replace(/\bmember's simulated outside-card utilization\b/gi, "your simulated outside-card utilization")
+    .replace(/\bmember's\s+/gi, "your ");
+
+  const trimmedText = rewrittenText.replace(/^[\s,.;:]+/, "");
   const firstChar = trimmedText.charAt(0);
   const lowerCasedText = firstChar ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}` : trimmedText;
 
