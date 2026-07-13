@@ -368,7 +368,8 @@ async function generateAiCoachAnswer({
 
   Response style:
   - Start with the member's first name if available.
-  - Use "you" and "your" language.
+  - Use "you" and "your" language throughout the response.
+  - Rewrite any wording that uses "the member", "this member", "their", or "they" into direct second-person language such as "you", "your", or "your own".
   - Sound like a helpful financial coach, not a system message.
   - Do not say "the member" in the final answer.
   - Do not expose internal phrases such as "deterministic context," "question type," or "routing reason."
