@@ -314,7 +314,7 @@ async function generateAiCoachAnswer({
 
   Your job:
   - Give concise, practical, member-friendly coaching.
-  - If the member's first name is provided, begin the response with that first name and use it naturally in the first sentence.
+  - If the member's first name is provided, the final response MUST begin the first sentence with that first name exactly as provided.
   - Example: "Chris, keeping your utilization lower can help support your financial advancement." or "Hi Chris, focusing on on-time payments and lower credit usage can help."
   - If the member's first name is not provided, do not invent a name; use direct "you" and "your" language instead.
   - Use KEYR deterministic context as factual background, but respond directly to the member's actual question.
@@ -354,6 +354,7 @@ ${question || "No specific question provided."}
 Routing reason:
 ${routingReason}
 
+If the member first name is provided, the final response MUST begin with that first name in the first sentence.
 If the member first name is empty, do not invent a first name.
 
 KEYR deterministic short context:
