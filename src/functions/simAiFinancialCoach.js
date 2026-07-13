@@ -235,22 +235,28 @@ function buildCoachContext({ questionType, user, externalCards, scenario, plan }
   }
 
   if (questionType === "utilization_coaching") {
-    const utilizationText =
-      utilization.utilizationPercent !== null
-        ? `The member's simulated outside-card utilization is approximately ${utilization.utilizationPercent.toFixed(
-            2
-          )}% based on total outside balances of $${utilization.totalBalance.toFixed(
-            2
-          )} and total outside limits of $${utilization.totalLimit.toFixed(2)}.`
-        : "The member's exact utilization could not be calculated from available card data.";
+  const utilizationText =
+    utilization.utilizationPercent !== null
+      ? `The member's simulated outside-card utilization is approximately ${utilization.utilizationPercent.toFixed(
+          2
+        )}% based on total outside balances of $${utilization.totalBalance.toFixed(
+          2
+        )} and total outside limits of $${utilization.totalLimit.toFixed(2)}.`
+      : "The member's exact utilization could not be calculated from available card data.";
 
-    return {
-      deterministicShortAnswer:
-        "Explain why lower utilization can support financial advancement. KEYR generally encourages members to work toward a low utilization target over time, such as near 8%, while continuing on-time payments and reducing high-APR debt.",
-      deterministicDetailedReasoning:
-        `${utilizationText} Do not recommend a balance transfer unless the member specifically asks about transfers. Focus on simple utilization coaching, practical next steps, and no guarantees.`
-    };
-  }
+  const fallbackAnswer =
+    utilization.utilizationPercent !== null
+      ? `Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. This member's simulated outside-card utilization is about ${utilization.utilizationPercent.toFixed(
+          2
+        )}%, so a practical next step is to reduce balances over time while continuing on-time payments. KEYR commonly encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`
+      : "Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. A practical next step is to reduce balances over time while continuing on-time payments. KEYR commonly encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.";
+
+  return {
+    deterministicShortAnswer: fallbackAnswer,
+    deterministicDetailedReasoning:
+      `${utilizationText} The member asked about utilization, not balance transfers. Do not recommend a balance transfer unless the member specifically asks about transfers, APR, payoff strategy, or multiple cards. Provide a finished member-facing answer, not instructions.`
+  };
+}
 
   if (questionType === "tier_progression") {
     return {
@@ -308,8 +314,10 @@ and progress toward better financial tiers over time.
 
 Your job:
 - Give concise, practical, member-friendly coaching.
-- Use KEYR deterministic context as the source of truth.
+- Use KEYR deterministic context as factual background, but respond directly to the member's actual question.
+- Return a finished member-facing answer, not instructions or a restatement of internal guidance.
 - Match the answer to the member's actual question type.
+- If the deterministic context contains coaching guidance, rewrite it as a natural response to the member.
 
 Critical rules:
 - Do not invent balances, APRs, credit limits, payments, scores, approval odds, or payoff timelines.
