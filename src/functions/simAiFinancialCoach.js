@@ -65,7 +65,8 @@ function ensureNameGreeting(text, firstName) {
   const firstChar = trimmedText.charAt(0);
   const lowerCasedText = firstChar ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}` : trimmedText;
   const sentenceFixedText = lowerCasedText
-    .replace(/\b(your|you|keyr)\b/gi, (match) => match.charAt(0).toUpperCase() + match.slice(1).toLowerCase())
+    .replace(/\bkeyr\b/gi, "KEYR")
+    .replace(/\b(your|you)\b/gi, (match) => match.charAt(0).toUpperCase() + match.slice(1).toLowerCase())
     .replace(/\b(?:i|a|an|and|or|but|for|nor|so|yet|the|to|of|in|on|at|by|from|with|as|is|are|was|were|be|been|being|this|that|these|those|your|you)\b/gi, (match) => match.toLowerCase())
     .replace(/([.!?]\s+)([a-z])/g, (match, p1, p2) => `${p1}${p2.toUpperCase()}`);
 
@@ -297,8 +298,8 @@ function buildCoachContext({ questionType, user, externalCards, scenario, plan }
     utilization.utilizationPercent !== null
       ? `Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. This member's simulated outside-card utilization is about ${utilization.utilizationPercent.toFixed(
           2
-        )}%, so a practical next step is to reduce balances over time while continuing on-time payments. KEYR commonly encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`
-      : "Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. A practical next step is to reduce balances over time while continuing on-time payments. KEYR commonly encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.";
+        )}%, so a practical next step is to reduce balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`
+      : "Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. A practical next step is to reduce balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.";
 
   return {
     deterministicShortAnswer: fallbackAnswer,
