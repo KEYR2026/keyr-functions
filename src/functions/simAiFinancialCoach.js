@@ -266,10 +266,10 @@ app.http("simAiFinancialCoach", {
   authLevel: "anonymous",
   route: "sim/ai-financial-coach",
 
-  handler: async (request, context) => {
+  handler: async (httpRequest, context) => {
     const corsHeaders = getCorsHeaders();
 
-    if (request.method === "OPTIONS") {
+    if (httpRequest.method === "OPTIONS") {
       return {
         status: 204,
         headers: corsHeaders
@@ -279,7 +279,7 @@ app.http("simAiFinancialCoach", {
     let pool;
 
     try {
-      const body = await request.json();
+      const body = await httpRequest.json();
       const simUserId = (body.simUserId || "").trim();
       const email = (body.email || "").trim();
       const question = (body.question || "").trim();
