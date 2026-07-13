@@ -17,7 +17,10 @@ function getCorsHeaders() {
 }
 
 function normalizeEndpoint(endpoint) {
-  return (endpoint || "").replace(/\/+$/, "");
+  return (endpoint || "")
+    .replace(/\/openai\/v1\/chat\/completions\/?$/i, "")
+    .replace(/\/openai\/v1\/?$/i, "")
+    .replace(/\/+$/, "");
 }
 
 function chooseModel(question, cardCount) {
@@ -159,7 +162,10 @@ async function generateAiCoachAnswer({
   }
 
   const cleanEndpoint = normalizeEndpoint(azureAiEndpoint);
-  const url = `${cleanEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(azureAiApiVersion)}`;
+
+  // Foundry/OpenAI-compatible v1 endpoint.
+  // Important: no api-version query string here.
+  const url = `${cleanEndpoint}/openai/v1/chat/completions`;
 
   const systemMessage = `
 You are KEYR's AI Financial Coach.
@@ -193,16 +199,16 @@ ${deterministicDetailedReasoning}
 
 Member profile:
 ${JSON.stringify(
-    {
-      simUserId: user?.sim_user_id,
-      firstName: user?.first_name,
-      lastName: user?.last_name,
-      email: user?.email,
-      currentTier: user?.current_tier
-    },
-    null,
-    2
-  )}
+  {
+    simUserId: user?.sim_user_id,
+    firstName: user?.first_name,
+    lastName: user?.last_name,
+    email: user?.email,
+    currentTier: user?.current_tier
+  },
+  null,
+  2
+)}
 
 External cards:
 ${JSON.stringify(externalCards || [], null, 2)}
@@ -219,6 +225,7 @@ ${JSON.stringify(scenario || {}, null, 2)}
         "api-key": azureAiApiKey
       },
       body: JSON.stringify({
+        model: deployment,
         messages: [
           {
             role: "system",
@@ -245,7 +252,10 @@ ${JSON.stringify(scenario || {}, null, 2)}
     }
 
     const parsed = JSON.parse(responseText);
-    const aiShortAnswer = parsed?.choices?.[0]?.message?.content?.trim() || deterministicShortAnswer;
+
+    const aiShortAnswer =
+      parsed?.choices?.[0]?.message?.content?.trim() ||
+      deterministicShortAnswer;
 
     return {
       aiWasUsed: true,
@@ -255,7 +265,7 @@ ${JSON.stringify(scenario || {}, null, 2)}
   } catch (error) {
     return {
       aiWasUsed: false,
-      aiError: error?.message || "Azure AI call failed.",
+      aiError: error.message || "Azure AI call failed.",
       shortAnswer: deterministicShortAnswer
     };
   }
