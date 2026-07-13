@@ -218,28 +218,35 @@ ${JSON.stringify(scenario || {}, null, 2)}
 `;
 
   try {
-    const aiResponse = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": azureAiApiKey
-      },
-      body: JSON.stringify({
-        model: deployment,
-        messages: [
-          {
-            role: "system",
-            content: systemMessage
-          },
-          {
-            role: "user",
-            content: userMessage
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 250
-      })
-    });
+    const requestPayload = {
+  model: deployment,
+  messages: [
+    {
+      role: "system",
+      content: systemMessage
+    },
+    {
+      role: "user",
+      content: userMessage
+    }
+  ],
+  temperature: 0.3
+};
+
+if ((deployment || "").toLowerCase().includes("gpt-5")) {
+  requestPayload.max_completion_tokens = 250;
+} else {
+  requestPayload.max_tokens = 250;
+}
+
+const aiResponse = await fetch(url, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "api-key": azureAiApiKey
+  },
+  body: JSON.stringify(requestPayload)
+});
 
     const responseText = await aiResponse.text();
 
