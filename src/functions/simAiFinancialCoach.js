@@ -46,14 +46,18 @@ function ensureNameGreeting(text, firstName) {
     .replace(/\bthe member\b/gi, "you")
     .replace(/\bthis member\b/gi, "you")
     .replace(/\bmember's\b/gi, "your")
+    .replace(/\bmember is\b/gi, "you are")
+    .replace(/\bmember are\b/gi, "you are")
     .replace(/\btheir\b/gi, "your")
     .replace(/\bthey\b/gi, "you")
     .replace(/\bthem\b/gi, "you")
     .replace(/\btheir available credit\b/gi, "your available credit")
     .replace(/\bthis member's\b/gi, "your")
-    .replace(/\bmember is\b/gi, "you are")
     .replace(/\bmember's simulated outside-card utilization\b/gi, "your simulated outside-card utilization")
-    .replace(/\bmember's simulated outside-card utilization\b/gi, "your simulated outside-card utilization")
+    .replace(/\bmember's simulated outside card utilization\b/gi, "your simulated outside-card utilization")
+    .replace(/\byou's\b/gi, "your")
+    .replace(/\byou is\b/gi, "you are")
+    .replace(/\byou are using\b/gi, "you are using")
     .replace(/\bmember's\s+/gi, "your ");
 
   const trimmedText = rewrittenText.replace(/^[\s,.;:]+/, "");
