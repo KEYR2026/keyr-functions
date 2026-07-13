@@ -1,6 +1,13 @@
 const { app } = require("@azure/functions");
 const sql = require("mssql");
 
+const azureAiEndpoint = process.env.AZURE_AI_ENDPOINT;
+const azureAiApiKey = process.env.AZURE_AI_API_KEY;
+const azureAiApiVersion = process.env.AZURE_AI_API_VERSION || "2024-10-21";
+
+const fastDeployment = process.env.KEYR_COACH_FAST_DEPLOYMENT || "gpt-5-mini";
+const deepDeployment = process.env.KEYR_COACH_DEEP_DEPLOYMENT || "DeepSeek-V4-Pro";
+
 function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -9,30 +16,65 @@ function getCorsHeaders() {
   };
 }
 
+function normalizeEndpoint(endpoint) {
+  return (endpoint || "").replace(/\/+$/, "");
+}
+
 function chooseModel(question, cardCount) {
   const q = (question || "").toLowerCase();
 
-  if (
-    cardCount >= 2 ||
-    q.includes("which") ||
-    q.includes("best strategy") ||
-    q.includes("what should i do") ||
-    q.includes("focus on") ||
-    q.includes("reduce faster") ||
-    q.includes("transfer from each") ||
-    q.includes("split it") ||
-    q.includes("three cards") ||
-    q.includes("multiple cards")
-  ) {
+  const deepKeywords = [
+    "which card",
+    "what card",
+    "best strategy",
+    "what should i do",
+    "focus on",
+    "reduce faster",
+    "transfer from each",
+    "split it",
+    "three cards",
+    "multiple cards",
+    "multi-card",
+    "multi card",
+    "several cards",
+    "balance transfer",
+    "transfer",
+    "apr",
+    "interest",
+    "payoff",
+    "pay off",
+    "pay down",
+    "debt reduction",
+    "debt strategy",
+    "snowball",
+    "avalanche",
+    "consolidate",
+    "consolidation",
+    "ascend",
+    "apex",
+    "12 month",
+    "six month",
+    "6 month",
+    "monthly plan",
+    "payment plan"
+  ];
+
+  const isDeepQuestion =
+    deepKeywords.some((word) => q.includes(word)) || Number(cardCount || 0) >= 3;
+
+  if (isDeepQuestion) {
     return {
-      model: "mai-thinking-1",
-      reason: "Debt strategy involves multiple cards or prioritization logic."
+      model: deepDeployment,
+      modelFamily: "DeepSeek-V4-Pro",
+      reason:
+        "Debt strategy involves APR, payoff, transfer, tier progression, consolidation, or multi-card logic."
     };
   }
 
   return {
-    model: "gpt-5-mini",
-    reason: "Simple coaching or explanation."
+    model: fastDeployment,
+    modelFamily: "gpt-5-mini",
+    reason: "Simple coaching or explanation routed to fast, low-cost model."
   };
 }
 
@@ -72,36 +114,18 @@ function buildTransferPlan(cards, scenario) {
     0
   );
 
-  const transferFee = totalTransferred * (transferFeePercent / 100);
-
-  const highestAprCard = allocations[0];
-
+  const transferFee = Number((totalTransferred * (transferFeePercent / 100)).toFixed(2));
+  const highestAprCard = allocations[0] || null;
   const recommendedStrategy = "highest_apr_first";
-
-  const recommendedCardLabel = highestAprCard
-    ? highestAprCard.cardLabel
-    : null;
-
-  const recommendedTransferAmount = highestAprCard
-    ? highestAprCard.transferAmount
-    : 0;
+  const recommendedCardLabel = highestAprCard ? highestAprCard.cardLabel : null;
+  const recommendedTransferAmount = highestAprCard ? highestAprCard.transferAmount : 0;
 
   const shortAnswer = highestAprCard
-    ? `Transfer $${totalTransferred.toFixed(
-        2
-      )} starting with ${highestAprCard.cardLabel}, which has the highest APR at ${highestAprCard.aprPercent.toFixed(
-        2
-      )}%. This maximizes interest savings by moving debt away from the most expensive balance first.`
+    ? `Transfer $${totalTransferred.toFixed(2)} starting with ${highestAprCard.cardLabel}, which has the highest APR at ${highestAprCard.aprPercent.toFixed(2)}%. This maximizes interest savings by moving debt away from the most expensive balance first.`
     : "No transfer recommendation is available because no external card balances were found.";
 
   const detailedReasoning = highestAprCard
-    ? `KEYR recommends applying the available balance transfer amount to the highest APR debt first. This approach generally reduces interest burden faster than splitting the transfer across lower APR cards. The total transfer amount is $${totalTransferred.toFixed(
-        2
-      )}, the estimated transfer fee is $${transferFee.toFixed(
-        2
-      )}, and the KEYR APR for this scenario is ${keyrApr.toFixed(
-        2
-      )}%. After completing the transfer, extra payments should continue toward the highest remaining APR balance.`
+    ? `KEYR recommends applying the available balance transfer amount to the highest APR debt first. This approach generally reduces interest burden faster than splitting the transfer across lower APR cards. The total transfer amount is $${totalTransferred.toFixed(2)}, the estimated transfer fee is $${transferFee.toFixed(2)}, and the KEYR APR for this scenario is ${keyrApr.toFixed(2)}%. After completing the transfer, extra payments should continue toward the highest remaining APR balance.`
     : "No external card balances were available for analysis.";
 
   return {
@@ -114,6 +138,127 @@ function buildTransferPlan(cards, scenario) {
     shortAnswer,
     detailedReasoning
   };
+}
+
+async function generateAiCoachAnswer({
+  deployment,
+  question,
+  deterministicShortAnswer,
+  deterministicDetailedReasoning,
+  user,
+  externalCards,
+  scenario,
+  routingReason
+}) {
+  if (!azureAiEndpoint || !azureAiApiKey) {
+    return {
+      aiWasUsed: false,
+      aiError: "Azure AI endpoint or API key is missing.",
+      shortAnswer: deterministicShortAnswer
+    };
+  }
+
+  const cleanEndpoint = normalizeEndpoint(azureAiEndpoint);
+  const url = `${cleanEndpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(azureAiApiVersion)}`;
+
+  const systemMessage = `
+You are KEYR's AI Financial Coach.
+
+KEYR is a financial advancement platform that helps members reduce revolving debt,
+improve utilization, understand balance transfer options, and progress toward better financial tiers.
+
+Rules:
+- Use KEYR deterministic calculations as the source of truth.
+- Do not invent balances, APRs, credit limits, payments, scores, approval odds, or payoff timelines.
+- Do not guarantee credit score increases, approvals, underwriting results, or tier upgrades.
+- Do not give legal, tax, bankruptcy, investment, or formal credit-repair advice.
+- Keep the response practical, clear, encouraging, and member-friendly.
+- If the member asks about hardship, fraud, disputes, collections, lawsuits, bankruptcy, or legal issues, recommend contacting KEYR support.
+- If the deterministic transfer recommendation is unrelated to the member's question, answer the member's question generally and do not force the balance transfer recommendation.
+- Keep the response under 125 words unless the member specifically asks for a detailed plan.
+`;
+
+  const userMessage = `
+Member question:
+${question || "No specific question provided."}
+
+Routing reason:
+${routingReason}
+
+KEYR deterministic short recommendation:
+${deterministicShortAnswer}
+
+KEYR deterministic detailed reasoning:
+${deterministicDetailedReasoning}
+
+Member profile:
+${JSON.stringify(
+    {
+      simUserId: user?.sim_user_id,
+      firstName: user?.first_name,
+      lastName: user?.last_name,
+      email: user?.email,
+      currentTier: user?.current_tier
+    },
+    null,
+    2
+  )}
+
+External cards:
+${JSON.stringify(externalCards || [], null, 2)}
+
+Balance transfer scenario:
+${JSON.stringify(scenario || {}, null, 2)}
+`;
+
+  try {
+    const aiResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": azureAiApiKey
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: systemMessage
+          },
+          {
+            role: "user",
+            content: userMessage
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 250
+      })
+    });
+
+    const responseText = await aiResponse.text();
+
+    if (!aiResponse.ok) {
+      return {
+        aiWasUsed: false,
+        aiError: `Azure AI call failed with status ${aiResponse.status}: ${responseText}`,
+        shortAnswer: deterministicShortAnswer
+      };
+    }
+
+    const parsed = JSON.parse(responseText);
+    const aiShortAnswer = parsed?.choices?.[0]?.message?.content?.trim() || deterministicShortAnswer;
+
+    return {
+      aiWasUsed: true,
+      aiError: null,
+      shortAnswer: aiShortAnswer
+    };
+  } catch (error) {
+    return {
+      aiWasUsed: false,
+      aiError: error?.message || "Azure AI call failed.",
+      shortAnswer: deterministicShortAnswer
+    };
+  }
 }
 
 app.http("simAiFinancialCoach", {
@@ -135,7 +280,6 @@ app.http("simAiFinancialCoach", {
 
     try {
       const body = await request.json();
-
       const simUserId = (body.simUserId || "").trim();
       const email = (body.email || "").trim();
       const question = (body.question || "").trim();
@@ -267,68 +411,41 @@ app.http("simAiFinancialCoach", {
 
       const routing = chooseModel(question, externalCards.length);
       const plan = buildTransferPlan(externalCards, scenario);
+      const deterministicShortAnswer = plan.shortAnswer;
+      const deterministicDetailedReasoning = plan.detailedReasoning;
 
-      await pool
-        .request()
+      const aiResult = await generateAiCoachAnswer({
+        deployment: routing.model,
+        question,
+        deterministicShortAnswer,
+        deterministicDetailedReasoning,
+        user,
+        externalCards,
+        scenario,
+        routingReason: routing.reason
+      });
+
+      const finalShortAnswer = aiResult.shortAnswer || deterministicShortAnswer;
+
+      const insertQuery =
+        "INSERT INTO dbo.SimAiFinancialCoachResults (" +
+        "sim_user_id, sim_bt_scenario_id, user_question, scenario_type, recommended_strategy, recommended_card_label, recommended_transfer_amount, model_selected, routing_reason, short_answer, detailed_reasoning) " +
+        "VALUES (@sim_user_id, @sim_bt_scenario_id, @user_question, @scenario_type, @recommended_strategy, @recommended_card_label, @recommended_transfer_amount, @model_selected, @routing_reason, @short_answer, @detailed_reasoning);";
+
+      const request = pool.request();
+      await request
         .input("sim_user_id", sql.UniqueIdentifier, user.sim_user_id)
-        .input(
-          "sim_bt_scenario_id",
-          sql.UniqueIdentifier,
-          scenario.sim_bt_scenario_id
-        )
+        .input("sim_bt_scenario_id", sql.UniqueIdentifier, scenario.sim_bt_scenario_id)
         .input("user_question", sql.NVarChar(sql.MAX), question || null)
         .input("scenario_type", sql.NVarChar(100), "balance_transfer_strategy")
-        .input(
-          "recommended_strategy",
-          sql.NVarChar(100),
-          plan.recommendedStrategy
-        )
-        .input(
-          "recommended_card_label",
-          sql.NVarChar(100),
-          plan.recommendedCardLabel
-        )
-        .input(
-          "recommended_transfer_amount",
-          sql.Decimal(18, 2),
-          plan.recommendedTransferAmount
-        )
+        .input("recommended_strategy", sql.NVarChar(100), plan.recommendedStrategy)
+        .input("recommended_card_label", sql.NVarChar(100), plan.recommendedCardLabel)
+        .input("recommended_transfer_amount", sql.Decimal(18, 2), plan.recommendedTransferAmount)
         .input("model_selected", sql.NVarChar(100), routing.model)
         .input("routing_reason", sql.NVarChar(500), routing.reason)
-        .input("short_answer", sql.NVarChar(sql.MAX), plan.shortAnswer)
-        .input(
-          "detailed_reasoning",
-          sql.NVarChar(sql.MAX),
-          plan.detailedReasoning
-        )
-        .query(`
-          INSERT INTO dbo.SimAiFinancialCoachResults (
-            sim_user_id,
-            sim_bt_scenario_id,
-            user_question,
-            scenario_type,
-            recommended_strategy,
-            recommended_card_label,
-            recommended_transfer_amount,
-            model_selected,
-            routing_reason,
-            short_answer,
-            detailed_reasoning
-          )
-          VALUES (
-            @sim_user_id,
-            @sim_bt_scenario_id,
-            @user_question,
-            @scenario_type,
-            @recommended_strategy,
-            @recommended_card_label,
-            @recommended_transfer_amount,
-            @model_selected,
-            @routing_reason,
-            @short_answer,
-            @detailed_reasoning
-          );
-        `);
+        .input("short_answer", sql.NVarChar(sql.MAX), finalShortAnswer)
+        .input("detailed_reasoning", sql.NVarChar(sql.MAX), deterministicDetailedReasoning)
+        .query(insertQuery);
 
       return {
         status: 200,
@@ -351,7 +468,13 @@ app.http("simAiFinancialCoach", {
               ? Number(scenario.monthly_payment_budget)
               : null
           },
-          routing,
+          routing: {
+            model: routing.model,
+            modelFamily: routing.modelFamily,
+            reason: routing.reason,
+            aiWasUsed: aiResult.aiWasUsed,
+            aiError: aiResult.aiError
+          },
           recommendation: {
             recommendedStrategy: plan.recommendedStrategy,
             recommendedCardLabel: plan.recommendedCardLabel,
@@ -359,8 +482,9 @@ app.http("simAiFinancialCoach", {
             totalTransferred: plan.totalTransferred,
             transferFee: plan.transferFee,
             allocations: plan.allocations,
-            shortAnswer: plan.shortAnswer,
-            detailedReasoning: plan.detailedReasoning
+            deterministicShortAnswer,
+            shortAnswer: finalShortAnswer,
+            detailedReasoning: deterministicDetailedReasoning
           }
         }
       };
@@ -372,7 +496,7 @@ app.http("simAiFinancialCoach", {
         headers: corsHeaders,
         jsonBody: {
           error: "Unable to generate AI Financial Coach recommendation.",
-          detail: error.message
+          detail: error?.message || "An unexpected error occurred."
         }
       };
     } finally {
