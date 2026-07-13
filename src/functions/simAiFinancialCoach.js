@@ -23,27 +23,38 @@ function normalizeEndpoint(endpoint) {
     .replace(/\/+$/, "");
 }
 
-function chooseModel(question, cardCount) {
+function classifyQuestionType(question) {
   const q = (question || "").toLowerCase();
 
-  const deepKeywords = [
-    "which card",
-    "what card",
-    "best strategy",
-    "what should i do",
-    "focus on",
-    "reduce faster",
-    "transfer from each",
-    "split it",
-    "three cards",
-    "multiple cards",
-    "multi-card",
-    "multi card",
-    "several cards",
+  const supportKeywords = [
+    "fraud",
+    "dispute",
+    "lawsuit",
+    "bankruptcy",
+    "collection",
+    "collections",
+    "hardship",
+    "can't pay",
+    "cannot pay",
+    "missed payment",
+    "late payment",
+    "legal"
+  ];
+
+  const transferKeywords = [
     "balance transfer",
     "transfer",
+    "split it",
+    "transfer from each",
+    "which card",
+    "highest apr",
     "apr",
     "interest",
+    "consolidate",
+    "consolidation"
+  ];
+
+  const payoffKeywords = [
     "payoff",
     "pay off",
     "pay down",
@@ -51,33 +62,83 @@ function chooseModel(question, cardCount) {
     "debt strategy",
     "snowball",
     "avalanche",
-    "consolidate",
-    "consolidation",
-    "ascend",
-    "apex",
-    "12 month",
-    "six month",
-    "6 month",
+    "payment plan",
     "monthly plan",
-    "payment plan"
+    "reduce faster",
+    "best strategy",
+    "what should i do",
+    "focus on"
   ];
 
-  const isDeepQuestion =
-    deepKeywords.some((word) => q.includes(word)) || Number(cardCount || 0) >= 3;
+  const utilizationKeywords = [
+    "utilization",
+    "utilisation",
+    "8 percent",
+    "8%",
+    "credit usage",
+    "available credit",
+    "credit limit"
+  ];
 
-  if (isDeepQuestion) {
+  const tierKeywords = [
+    "ascend",
+    "apex",
+    "merit",
+    "anchor",
+    "tier",
+    "graduate",
+    "advance",
+    "upgrade",
+    "qualify"
+  ];
+
+  if (supportKeywords.some((word) => q.includes(word))) {
+    return "support_escalation";
+  }
+
+  if (transferKeywords.some((word) => q.includes(word))) {
+    return "transfer_strategy";
+  }
+
+  if (payoffKeywords.some((word) => q.includes(word))) {
+    return "payoff_strategy";
+  }
+
+  if (utilizationKeywords.some((word) => q.includes(word))) {
+    return "utilization_coaching";
+  }
+
+  if (tierKeywords.some((word) => q.includes(word))) {
+    return "tier_progression";
+  }
+
+  return "general_coaching";
+}
+
+function chooseModel(question, cardCount) {
+  const questionType = classifyQuestionType(question);
+
+  const deepQuestionTypes = [
+    "transfer_strategy",
+    "payoff_strategy"
+  ];
+
+  if (deepQuestionTypes.includes(questionType)) {
     return {
       model: deepDeployment,
       modelFamily: "DeepSeek-V4-Pro",
+      questionType,
       reason:
-        "Debt strategy involves APR, payoff, transfer, tier progression, consolidation, or multi-card logic."
+        "Debt strategy involves APR, payoff, transfer, consolidation, or multi-card optimization logic."
     };
   }
 
   return {
     model: fastDeployment,
     modelFamily: "gpt-5-mini",
-    reason: "Simple coaching or explanation routed to fast, low-cost model."
+    questionType,
+    reason:
+      "Simple coaching, utilization, tier explanation, or support-safe response routed to fast, low-cost model."
   };
 }
 
@@ -142,10 +203,85 @@ function buildTransferPlan(cards, scenario) {
     detailedReasoning
   };
 }
+function calculateExternalUtilization(cards) {
+  const totalBalance = cards.reduce(
+    (sum, card) => sum + Number(card.current_balance || 0),
+    0
+  );
+
+  const totalLimit = cards.reduce(
+    (sum, card) => sum + Number(card.credit_limit || 0),
+    0
+  );
+
+  const utilizationPercent =
+    totalLimit > 0 ? (totalBalance / totalLimit) * 100 : null;
+
+  return {
+    totalBalance,
+    totalLimit,
+    utilizationPercent
+  };
+}
+
+function buildCoachContext({ questionType, user, externalCards, scenario, plan }) {
+  const utilization = calculateExternalUtilization(externalCards || []);
+
+  if (questionType === "transfer_strategy" || questionType === "payoff_strategy") {
+    return {
+      deterministicShortAnswer: plan.shortAnswer,
+      deterministicDetailedReasoning: plan.detailedReasoning
+    };
+  }
+
+  if (questionType === "utilization_coaching") {
+    const utilizationText =
+      utilization.utilizationPercent !== null
+        ? `The member's simulated outside-card utilization is approximately ${utilization.utilizationPercent.toFixed(
+            2
+          )}% based on total outside balances of $${utilization.totalBalance.toFixed(
+            2
+          )} and total outside limits of $${utilization.totalLimit.toFixed(2)}.`
+        : "The member's exact utilization could not be calculated from available card data.";
+
+    return {
+      deterministicShortAnswer:
+        "Explain why lower utilization can support financial advancement. KEYR generally encourages members to work toward a low utilization target over time, such as near 8%, while continuing on-time payments and reducing high-APR debt.",
+      deterministicDetailedReasoning:
+        `${utilizationText} Do not recommend a balance transfer unless the member specifically asks about transfers. Focus on simple utilization coaching, practical next steps, and no guarantees.`
+    };
+  }
+
+  if (questionType === "tier_progression") {
+    return {
+      deterministicShortAnswer:
+        `The member is currently in the ${user.current_tier || "current"} tier. Explain practical ways to progress over time, such as lowering utilization, paying on time, reducing high-APR balances, avoiding unnecessary new debt, and maintaining consistent behavior.`,
+      deterministicDetailedReasoning:
+        "Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria."
+    };
+  }
+
+  if (questionType === "support_escalation") {
+    return {
+      deterministicShortAnswer:
+        "This question may involve support, hardship, legal, fraud, dispute, collections, or bankruptcy concerns. Provide a safe, brief response and recommend contacting KEYR support for review.",
+      deterministicDetailedReasoning:
+        "Do not provide legal, bankruptcy, tax, or formal credit-repair advice. Keep the response supportive and direct the member to support."
+    };
+  }
+
+  return {
+    deterministicShortAnswer:
+      `The member is currently in the ${user.current_tier || "current"} tier. Provide a short, helpful KEYR coaching response based on the question. Do not force a balance-transfer recommendation unless the member asks about transfers, APR, payoff, or multiple cards.`,
+    deterministicDetailedReasoning:
+      "Use the available profile and card context only as background. Keep the response concise, practical, encouraging, and accurate."
+  };
+}
 
 async function generateAiCoachAnswer({
   deployment,
   question,
+  questionType,
   deterministicShortAnswer,
   deterministicDetailedReasoning,
   user,
@@ -162,39 +298,44 @@ async function generateAiCoachAnswer({
   }
 
   const cleanEndpoint = normalizeEndpoint(azureAiEndpoint);
-
-  // Foundry/OpenAI-compatible v1 endpoint.
-  // Important: no api-version query string here.
   const url = `${cleanEndpoint}/openai/v1/chat/completions`;
 
   const systemMessage = `
 You are KEYR's AI Financial Coach.
 
-KEYR is a financial advancement platform that helps members reduce revolving debt,
-improve utilization, understand balance transfer options, and progress toward better financial tiers.
+KEYR helps members reduce revolving debt, improve utilization, understand payoff options,
+and progress toward better financial tiers over time.
 
-Rules:
-- Use KEYR deterministic calculations as the source of truth.
+Your job:
+- Give concise, practical, member-friendly coaching.
+- Use KEYR deterministic context as the source of truth.
+- Match the answer to the member's actual question type.
+
+Critical rules:
 - Do not invent balances, APRs, credit limits, payments, scores, approval odds, or payoff timelines.
-- Do not guarantee credit score increases, approvals, underwriting results, or tier upgrades.
-- Do not give legal, tax, bankruptcy, investment, or formal credit-repair advice.
-- Keep the response practical, clear, encouraging, and member-friendly.
+- Do not guarantee credit score increases, approvals, underwriting decisions, or tier upgrades.
+- Do not provide legal, tax, bankruptcy, investment, or formal credit-repair advice.
+- Do not recommend a balance transfer unless the member asks about transfers, APR, payoff, debt strategy, or multiple cards.
+- If the member asks about utilization, answer about utilization and do not force a transfer recommendation.
+- If the member asks about tier progression, explain habits and milestones without guarantees.
 - If the member asks about hardship, fraud, disputes, collections, lawsuits, bankruptcy, or legal issues, recommend contacting KEYR support.
-- If the deterministic transfer recommendation is unrelated to the member's question, answer the member's question generally and do not force the balance transfer recommendation.
 - Keep the response under 125 words unless the member specifically asks for a detailed plan.
 `;
 
   const userMessage = `
+Question type:
+${questionType}
+
 Member question:
 ${question || "No specific question provided."}
 
 Routing reason:
 ${routingReason}
 
-KEYR deterministic short recommendation:
+KEYR deterministic short context:
 ${deterministicShortAnswer}
 
-KEYR deterministic detailed reasoning:
+KEYR deterministic detailed context:
 ${deterministicDetailedReasoning}
 
 Member profile:
@@ -219,34 +360,34 @@ ${JSON.stringify(scenario || {}, null, 2)}
 
   try {
     const requestPayload = {
-  model: deployment,
-  messages: [
-    {
-      role: "system",
-      content: systemMessage
-    },
-    {
-      role: "user",
-      content: userMessage
+      model: deployment,
+      messages: [
+        {
+          role: "system",
+          content: systemMessage
+        },
+        {
+          role: "user",
+          content: userMessage
+        }
+      ],
+      temperature: 0.25
+    };
+
+    if ((deployment || "").toLowerCase().includes("gpt-5")) {
+      requestPayload.max_completion_tokens = 250;
+    } else {
+      requestPayload.max_tokens = 250;
     }
-  ],
-  temperature: 1
-};
 
-if ((deployment || "").toLowerCase().includes("gpt-5")) {
-  requestPayload.max_completion_tokens = 250;
-} else {
-  requestPayload.max_tokens = 250;
-}
-
-const aiResponse = await fetch(url, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "api-key": azureAiApiKey
-  },
-  body: JSON.stringify(requestPayload)
-});
+    const aiResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": azureAiApiKey
+      },
+      body: JSON.stringify(requestPayload)
+    });
 
     const responseText = await aiResponse.text();
 
@@ -428,19 +569,30 @@ app.http("simAiFinancialCoach", {
 
       const routing = chooseModel(question, externalCards.length);
       const plan = buildTransferPlan(externalCards, scenario);
-      const deterministicShortAnswer = plan.shortAnswer;
-      const deterministicDetailedReasoning = plan.detailedReasoning;
+
+      const coachContext = buildCoachContext({
+        questionType: routing.questionType,
+        user,
+        externalCards,
+        scenario,
+        plan
+      });
+
+      const deterministicShortAnswer = coachContext.deterministicShortAnswer;
+      const deterministicDetailedReasoning =
+        coachContext.deterministicDetailedReasoning;
 
       const aiResult = await generateAiCoachAnswer({
         deployment: routing.model,
         question,
+        questionType: routing.questionType,
         deterministicShortAnswer,
         deterministicDetailedReasoning,
         user,
         externalCards,
         scenario,
         routingReason: routing.reason
-      });
+});
 
       const finalShortAnswer = aiResult.shortAnswer || deterministicShortAnswer;
 
@@ -486,11 +638,12 @@ app.http("simAiFinancialCoach", {
               : null
           },
           routing: {
-            model: routing.model,
-            modelFamily: routing.modelFamily,
-            reason: routing.reason,
-            aiWasUsed: aiResult.aiWasUsed,
-            aiError: aiResult.aiError
+          model: routing.model,
+          modelFamily: routing.modelFamily,
+          questionType: routing.questionType,
+          reason: routing.reason,
+          aiWasUsed: aiResult.aiWasUsed,
+          aiError: aiResult.aiError
           },
           recommendation: {
             recommendedStrategy: plan.recommendedStrategy,
