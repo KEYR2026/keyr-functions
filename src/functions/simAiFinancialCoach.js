@@ -35,12 +35,18 @@ function ensureNameGreeting(text, firstName) {
     return cleanText;
   }
 
+  const normalizedText = cleanText.replace(/^\s+/, "");
   const namePattern = new RegExp(`^(hi|hello)\\s+${escapeRegExp(name)}\\b|^${escapeRegExp(name)}\\b`, "i");
-  if (namePattern.test(cleanText)) {
-    return cleanText;
+
+  if (namePattern.test(normalizedText)) {
+    return normalizedText;
   }
 
-  return `Hi ${name}, ${cleanText.replace(/^[\s,.;:]+/, "")}`;
+  const trimmedText = normalizedText.replace(/^[\s,.;:]+/, "");
+  const firstChar = trimmedText.charAt(0);
+  const lowerCasedText = firstChar ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}` : trimmedText;
+
+  return `Hi ${name}, ${lowerCasedText}`.replace(/,\s+/g, ", ");
 }
 
 function classifyQuestionType(question) {
@@ -341,6 +347,8 @@ async function generateAiCoachAnswer({
   - Give concise, practical, member-friendly coaching.
   - If the member's first name is provided, the final response MUST begin the first sentence with that first name exactly as provided.
   - Example: "Chris, keeping your utilization lower can help support your financial advancement." or "Hi Chris, focusing on on-time payments and lower credit usage can help."
+  - Keep the tone warm, encouraging, and proactive while remaining objective and practical.
+  - Focus on helping the member act efficiently and make steady progress without sounding overly formal or cold.
   - If the member's first name is not provided, do not invent a name; use direct "you" and "your" language instead.
   - Use KEYR deterministic context as factual background, but respond directly to the member's actual question.
   - Return a finished member-facing answer, not instructions, placeholders, or a restatement of internal guidance.
