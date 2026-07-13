@@ -43,6 +43,7 @@ function ensureNameGreeting(text, firstName) {
   }
 
   const rewrittenText = normalizedText
+    .replace(/\bkeeping utilization lower\b/gi, "keeping your utilization lower")
     .replace(/\bthe member\b/gi, "you")
     .replace(/\bthis member\b/gi, "you")
     .replace(/\bmember's\b/gi, "your")
@@ -63,8 +64,12 @@ function ensureNameGreeting(text, firstName) {
   const trimmedText = rewrittenText.replace(/^[\s,.;:]+/, "");
   const firstChar = trimmedText.charAt(0);
   const lowerCasedText = firstChar ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}` : trimmedText;
+  const sentenceFixedText = lowerCasedText
+    .replace(/\b(your|you|keyr)\b/gi, (match) => match.charAt(0).toUpperCase() + match.slice(1).toLowerCase())
+    .replace(/\b(?:i|a|an|and|or|but|for|nor|so|yet|the|to|of|in|on|at|by|from|with|as|is|are|was|were|be|been|being|this|that|these|those|your|you)\b/gi, (match) => match.toLowerCase())
+    .replace(/^([a-z])/, (match) => match.toUpperCase());
 
-  return `Hi ${name}, ${lowerCasedText}`.replace(/,\s+/g, ", ");
+  return `Hi ${name}, ${sentenceFixedText}`.replace(/,\s+/g, ", ");
 }
 
 function classifyQuestionType(question) {
