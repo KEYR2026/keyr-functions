@@ -1159,7 +1159,7 @@ ${JSON.stringify(memberCoachContext || {}, null, 2)}
           content: userMessage
         }
       ],
-      temperature: 0.4
+      temperature: 1,
     };
 
     if ((deployment || "").toLowerCase().includes("gpt-5")) {
