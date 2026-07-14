@@ -3,5 +3,5 @@ Content-Type: application/json
 
 {
   "email": "chris.pendingspend@keyr-sim.test",
-  "question": "How long does a balance transfer take and do weekends count?"
+  "question": "Which balance should I pay first if I want to reduce interest faster?"
 }

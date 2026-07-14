@@ -88,6 +88,20 @@ function isTransferTimingQuestion(question) {
   return hasTransferContext && hasTimingContext;
 }
 
+function isPayFirstQuestion(question) {
+  const q = (question || "").toLowerCase();
+  return (
+    q.includes("pay first") ||
+    q.includes("which balance") ||
+    q.includes("which card") ||
+    q.includes("reduce interest") ||
+    q.includes("interest faster") ||
+    q.includes("reduce interest faster") ||
+    q.includes("pay down") ||
+    q.includes("highest apr")
+  );
+}
+
 function getFallbackKnowledgeArticle(question) {
   const q = (question || "").toLowerCase();
 
@@ -101,6 +115,22 @@ function getFallbackKnowledgeArticle(question) {
       short_answer:
         "Balance transfers usually take 5 to 7 business days to complete, and weekends and bank holidays do not count toward that timeline.",
       recommended_model: "gpt-5-mini",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  if (isPayFirstQuestion(question)) {
+    return {
+      article_id: 999998,
+      article_code: "COACH_048_PAY_FIRST",
+      title: "Which balance should I pay first to reduce interest faster?",
+      approved_answer:
+        "Pay the balance with the highest APR first if you want to reduce interest faster. This usually saves the most interest over time.",
+      short_answer:
+        "Pay the balance with the highest APR first to reduce interest faster.",
+      recommended_model: "DeepSeek-V4-Pro",
       escalation_required: false,
       human_review_required: false,
       best_match_weight: 100
@@ -145,6 +175,11 @@ function classifyQuestionType(question) {
     "payoff",
     "pay off",
     "pay down",
+    "pay first",
+    "which balance",
+    "reduce interest",
+    "interest faster",
+    "reduce interest faster",
     "debt reduction",
     "debt strategy",
     "snowball",
@@ -187,12 +222,12 @@ function classifyQuestionType(question) {
     return "transfer_timing";
   }
 
-  if (transferKeywords.some((word) => q.includes(word))) {
-    return "transfer_strategy";
-  }
-
   if (payoffKeywords.some((word) => q.includes(word))) {
     return "payoff_strategy";
+  }
+
+  if (transferKeywords.some((word) => q.includes(word))) {
+    return "transfer_strategy";
   }
 
   if (utilizationKeywords.some((word) => q.includes(word))) {
@@ -515,7 +550,21 @@ async function findKnowledgeArticle(pool, question) {
               LOWER(@question) LIKE '%' + LOWER(q.question_text) + '%'
               OR LOWER(q.question_text) LIKE '%' + LOWER(@question) + '%'
               OR LOWER(@question) LIKE '%' + LOWER(a.title) + '%'
+              OR LOWER(a.title) LIKE '%' + LOWER(@question) + '%'
               OR LOWER(a.keywords) LIKE '%' + LOWER(@question) + '%'
+              OR LOWER(q.keywords) LIKE '%' + LOWER(@question) + '%'
+              OR LOWER(@question) LIKE '%pay first%'
+              OR LOWER(@question) LIKE '%reduce interest%'
+              OR LOWER(@question) LIKE '%interest faster%'
+              OR LOWER(@question) LIKE '%which balance%'
+              OR LOWER(@question) LIKE '%which card%'
+              OR LOWER(@question) LIKE '%highest apr%'
+              OR LOWER(q.question_text) LIKE '%pay first%'
+              OR LOWER(q.question_text) LIKE '%reduce interest%'
+              OR LOWER(q.question_text) LIKE '%highest apr%'
+              OR LOWER(q.keywords) LIKE '%pay first%'
+              OR LOWER(q.keywords) LIKE '%reduce interest%'
+              OR LOWER(q.keywords) LIKE '%highest apr%'
             )
       GROUP BY
           a.article_id,
