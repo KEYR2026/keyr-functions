@@ -631,7 +631,11 @@ async function findKnowledgeArticle(pool, question) {
     return null;
   }
 
-  if (isPayFirstQuestion(cleanQuestion)) {
+  if (
+    isTransferTimingQuestion(cleanQuestion) ||
+    isPayFirstQuestion(cleanQuestion) ||
+    isNextStepQuestion(cleanQuestion)
+  ) {
     return getFallbackKnowledgeArticle(cleanQuestion);
   }
 
