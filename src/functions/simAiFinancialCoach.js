@@ -27,6 +27,16 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function getFirstName(user) {
+  const rawName = user?.first_name || user?.firstName || user?.name || "";
+
+  if (typeof rawName !== "string") {
+    return "";
+  }
+
+  return rawName.trim().split(/\s+/)[0] || "";
+}
+
 function ensureNameGreeting(text, firstName) {
   const name = (firstName || "").trim();
   const cleanText = (text || "").trim();
@@ -36,46 +46,48 @@ function ensureNameGreeting(text, firstName) {
   }
 
   const normalizedText = cleanText.replace(/^\s+/, "");
-  const namePattern = new RegExp(`^(hi|hello)\\s+${escapeRegExp(name)}\\b|^${escapeRegExp(name)}\\b`, "i");
+  const namePattern = new RegExp(
+    `^(hi|hello)\\s+${escapeRegExp(name)}\\b|^${escapeRegExp(name)}\\b`,
+    "i"
+  );
 
-  if (namePattern.test(normalizedText)) {
-    return normalizedText;
-  }
-
-  const rewrittenText = normalizedText
+  let rewrittenText = normalizedText
     .replace(/\bkeeping utilization lower\b/gi, "keeping your utilization lower")
     .replace(/\bthe member\b/gi, "you")
     .replace(/\bthis member\b/gi, "you")
     .replace(/\bmember's\b/gi, "your")
-    .replace(/\bmember is\b/gi, "you are")
-    .replace(/\bmember are\b/gi, "you are")
+    .replace(/\btheir available credit\b/gi, "your available credit")
     .replace(/\btheir\b/gi, "your")
     .replace(/\bthey\b/gi, "you")
     .replace(/\bthem\b/gi, "you")
-    .replace(/\btheir available credit\b/gi, "your available credit")
-    .replace(/\bthis member's\b/gi, "your")
-    .replace(/\bmember's simulated outside-card utilization\b/gi, "your simulated outside-card utilization")
-    .replace(/\bmember's simulated outside card utilization\b/gi, "your simulated outside-card utilization")
     .replace(/\byou's\b/gi, "your")
     .replace(/\byou is\b/gi, "you are")
-    .replace(/\byou are using\b/gi, "you are using")
-    .replace(/\bmember's\s+/gi, "your ");
+    .replace(/\bkeyr\b/gi, "KEYR");
+
+  rewrittenText = rewrittenText.replace(/([.!?]\s+)([a-z])/g, (match, p1, p2) => {
+    return `${p1}${p2.toUpperCase()}`;
+  });
+
+  if (namePattern.test(rewrittenText)) {
+    return rewrittenText;
+  }
 
   const trimmedText = rewrittenText.replace(/^[\s,.;:]+/, "");
   const firstChar = trimmedText.charAt(0);
-  const lowerCasedText = firstChar ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}` : trimmedText;
-  const sentenceFixedText = lowerCasedText
-    .replace(/\bkeyr\b/gi, "KEYR")
-    .replace(/\b(your|you)\b/gi, (match) => match.charAt(0).toUpperCase() + match.slice(1).toLowerCase())
-    .replace(/\b(?:i|a|an|and|or|but|for|nor|so|yet|the|to|of|in|on|at|by|from|with|as|is|are|was|were|be|been|being|this|that|these|those|your|you)\b/gi, (match) => match.toLowerCase())
-    .replace(/([.!?]\s+)([a-z])/g, (match, p1, p2) => `${p1}${p2.toUpperCase()}`);
+  const lowerCasedText = firstChar
+    ? `${firstChar.toLowerCase()}${trimmedText.slice(1)}`
+    : trimmedText;
 
-  return `Hi ${name}, ${sentenceFixedText}`.replace(/,\s+/g, ", ");
+  return `Hi ${name}, ${lowerCasedText}`.replace(/,\s+/g, ", ");
 }
 
 function isTransferTimingQuestion(question) {
   const q = (question || "").toLowerCase();
-  const hasTransferContext = q.includes("balance transfer") || q.includes("transfer");
+
+  const hasTransferContext =
+    q.includes("balance transfer") ||
+    q.includes("transfer");
+
   const hasTimingContext =
     q.includes("how long") ||
     q.includes("business day") ||
@@ -83,27 +95,30 @@ function isTransferTimingQuestion(question) {
     q.includes("weekend") ||
     q.includes("weekends") ||
     q.includes("timing") ||
-    q.includes("processing time");
+    q.includes("processing time") ||
+    q.includes("complete") ||
+    q.includes("finish");
 
   return hasTransferContext && hasTimingContext;
 }
 
 function isPayFirstQuestion(question) {
   const q = (question || "").toLowerCase();
+
   return (
     q.includes("pay first") ||
     q.includes("which balance") ||
     q.includes("which card") ||
     q.includes("reduce interest") ||
     q.includes("interest faster") ||
-    q.includes("reduce interest faster") ||
-    q.includes("pay down") ||
-    q.includes("highest apr")
+    q.includes("highest apr") ||
+    q.includes("attack first")
   );
 }
 
 function isNextStepQuestion(question) {
   const q = (question || "").toLowerCase();
+
   return (
     q.includes("what should i do next") ||
     q.includes("what should i do") ||
@@ -111,62 +126,10 @@ function isNextStepQuestion(question) {
     q.includes("what do i do next") ||
     q.includes("what's next") ||
     q.includes("next step") ||
-    q.includes("what should i do now")
+    q.includes("next best action") ||
+    q.includes("what should i do now") ||
+    q.includes("what should i work on next")
   );
-}
-
-function getFallbackKnowledgeArticle(question) {
-  const q = (question || "").toLowerCase();
-
-  if (isTransferTimingQuestion(question)) {
-    return {
-      article_id: 999999,
-      article_code: "BT_022_TRANSFER_TIMING",
-      title: "How long does a balance transfer take?",
-      approved_answer:
-        "Balance transfers usually take 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline.",
-      short_answer:
-        "Balance transfers usually take 5 to 7 business days to complete, and weekends and bank holidays do not count toward that timeline.",
-      recommended_model: "gpt-5-mini",
-      escalation_required: false,
-      human_review_required: false,
-      best_match_weight: 100
-    };
-  }
-
-  if (isPayFirstQuestion(question)) {
-    return {
-      article_id: 999998,
-      article_code: "COACH_048_PAY_FIRST",
-      title: "Which balance should I pay first to reduce interest faster?",
-      approved_answer:
-        "Pay the balance with the highest APR first if you want to reduce interest faster. This usually saves the most interest over time.",
-      short_answer:
-        "Pay the balance with the highest APR first to reduce interest faster.",
-      recommended_model: "DeepSeek-V4-Pro",
-      escalation_required: false,
-      human_review_required: false,
-      best_match_weight: 100
-    };
-  }
-
-  if (isNextStepQuestion(question)) {
-    return {
-      article_id: 999997,
-      article_code: "COACH_042_FOCUS_NEXT",
-      title: "What should I do next?",
-      approved_answer:
-        "Focus on the next best action based on your current readiness, dashboard guidance, and next focus area.",
-      short_answer:
-        "Focus on your next best action based on your readiness signals and dashboard guidance.",
-      recommended_model: "DeepSeek-V4-Pro",
-      escalation_required: false,
-      human_review_required: false,
-      best_match_weight: 100
-    };
-  }
-
-  return null;
 }
 
 function classifyQuestionType(question) {
@@ -217,7 +180,6 @@ function classifyQuestionType(question) {
     "monthly plan",
     "reduce faster",
     "best strategy",
-    "what should i do",
     "focus on"
   ];
 
@@ -253,6 +215,10 @@ function classifyQuestionType(question) {
 
   if (isNextStepQuestion(question)) {
     return "next_step";
+  }
+
+  if (isPayFirstQuestion(question)) {
+    return "payoff_strategy";
   }
 
   if (payoffKeywords.some((word) => q.includes(word))) {
@@ -302,7 +268,8 @@ function chooseModel(question, cardCount, knowledgeArticle) {
       model: fastDeployment,
       modelFamily: "gpt-5-mini",
       questionType,
-      reason: "Transfer timing and processing questions are simple knowledge-based requests routed to the fast model."
+      reason:
+        "Transfer timing and processing questions are simple knowledge-based requests routed to the fast model."
     };
   }
 
@@ -311,7 +278,8 @@ function chooseModel(question, cardCount, knowledgeArticle) {
       model: deepDeployment,
       modelFamily: "DeepSeek-V4-Pro",
       questionType,
-      reason: "Next-step guidance should use member context and dashboard signals for personalized coaching."
+      reason:
+        "Next-step guidance uses member context and dashboard signals for personalized coaching."
     };
   }
 
@@ -340,11 +308,11 @@ function chooseModel(question, cardCount, knowledgeArticle) {
 }
 
 function buildTransferPlan(cards, scenario) {
-  const transferLimit = Number(scenario.transfer_limit || 0);
-  const transferFeePercent = Number(scenario.transfer_fee_percent || 0);
-  const keyrApr = Number(scenario.keyr_apr_percent || 0);
+  const transferLimit = Number(scenario?.transfer_limit || 0);
+  const transferFeePercent = Number(scenario?.transfer_fee_percent || 0);
+  const keyrApr = Number(scenario?.keyr_apr_percent || 0);
 
-  const sortedCards = [...cards].sort(
+  const sortedCards = [...(cards || [])].sort(
     (a, b) => Number(b.apr_percent) - Number(a.apr_percent)
   );
 
@@ -375,7 +343,10 @@ function buildTransferPlan(cards, scenario) {
     0
   );
 
-  const transferFee = Number((totalTransferred * (transferFeePercent / 100)).toFixed(2));
+  const transferFee = Number(
+    (totalTransferred * (transferFeePercent / 100)).toFixed(2)
+  );
+
   const highestAprCard = allocations[0] || null;
   const recommendedStrategy = "highest_apr_first";
   const recommendedCardLabel = highestAprCard ? highestAprCard.cardLabel : null;
@@ -400,13 +371,14 @@ function buildTransferPlan(cards, scenario) {
     detailedReasoning
   };
 }
+
 function calculateExternalUtilization(cards) {
-  const totalBalance = cards.reduce(
+  const totalBalance = (cards || []).reduce(
     (sum, card) => sum + Number(card.current_balance || 0),
     0
   );
 
-  const totalLimit = cards.reduce(
+  const totalLimit = (cards || []).reduce(
     (sum, card) => sum + Number(card.credit_limit || 0),
     0
   );
@@ -418,170 +390,6 @@ function calculateExternalUtilization(cards) {
     totalBalance,
     totalLimit,
     utilizationPercent
-  };
-}
-
-function getFirstName(user) {
-  const rawName = user?.first_name || user?.firstName || user?.name || "";
-  if (typeof rawName !== "string") {
-    return "";
-  }
-
-  return rawName.trim().split(/\s+/)[0] || "";
-}
-
-function buildCoachContext({ questionType, user, externalCards, scenario, plan, knowledgeArticle, memberCoachContext }) {
-  const utilization = calculateExternalUtilization(externalCards || []);
-
-  if ((questionType === "tier_progression" || questionType === "next_step") && knowledgeArticle) {
-    const firstName = getFirstName(user);
-    const readinessStatus = memberCoachContext?.calculated_readiness_status || "unknown";
-    const currentTier = user?.current_tier || "current";
-    const score = memberCoachContext?.credit_score;
-    const ascendMinScore = memberCoachContext?.ascend_min_score;
-    const nextFocus = memberCoachContext?.next_focus_area || "credit profile";
-    const onTimeStatus = memberCoachContext?.on_time_status || "unknown";
-    const utilizationStatus = memberCoachContext?.utilization_status || "unknown";
-    const nextBestAction = memberCoachContext?.next_best_action_message || "Continue making consistent payments and keep your account in good standing.";
-
-    const readinessLabel = readinessStatus === "nearly_ready"
-      ? "nearly ready"
-      : readinessStatus === "ready"
-        ? "ready"
-        : "not yet at the target";
-
-    const deterministicShortAnswer = [
-      `Hi ${firstName || "there"},`,
-      `Your next focus area is strengthening your ${nextFocus}.`,
-      `You are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}, and your on-time payment and utilization indicators are meeting expectations.`,
-      `${nextBestAction}`,
-      `KEYR cannot guarantee advancement, but continuing positive payment behavior and improving your ${nextFocus} may strengthen your readiness over time.`
-    ].join(" ");
-
-    return {
-      deterministicShortAnswer,
-      deterministicDetailedReasoning:
-        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Next best action: ${nextBestAction}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`,
-      knowledgeArticleUsed: {
-        articleId: knowledgeArticle.article_id,
-        articleCode: knowledgeArticle.article_code,
-        title: knowledgeArticle.title,
-        recommendedModel: knowledgeArticle.recommended_model,
-        escalationRequired: knowledgeArticle.escalation_required,
-        humanReviewRequired: knowledgeArticle.human_review_required,
-        bestMatchWeight: knowledgeArticle.best_match_weight
-      }
-    };
-  }
-
-  if (knowledgeArticle) {
-    const firstName = getFirstName(user);
-
-    let timingContext = null;
-
-    if (
-      knowledgeArticle.article_code === "BT_022_TRANSFER_TIMING" ||
-      (questionType || "").includes("balance_transfer")
-    ) {
-      timingContext = buildBalanceTransferTimingContext();
-    }
-
-    const timingText = timingContext
-      ? ` If estimated today, a ${timingContext.businessDayWindow} processing window would place the estimated completion between ${timingContext.estimatedEarliestCompletion} and ${timingContext.estimatedLatestCompletion}. Weekends are excluded from this estimate. Actual timing can vary by creditor, review, processing method, and holidays.`
-      : "";
-
-    return {
-      deterministicShortAnswer:
-        `${firstName}, ${knowledgeArticle.short_answer || knowledgeArticle.approved_answer}`,
-      deterministicDetailedReasoning:
-        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Approved answer: ${knowledgeArticle.approved_answer}.${timingText}`,
-      knowledgeArticleUsed: {
-        articleId: knowledgeArticle.article_id,
-        articleCode: knowledgeArticle.article_code,
-        title: knowledgeArticle.title,
-        recommendedModel: knowledgeArticle.recommended_model,
-        escalationRequired: knowledgeArticle.escalation_required,
-        humanReviewRequired: knowledgeArticle.human_review_required,
-        bestMatchWeight: knowledgeArticle.best_match_weight
-      }
-    };
-  }
-
-  if (questionType === "transfer_strategy" || questionType === "payoff_strategy") {
-    return {
-      deterministicShortAnswer: plan.shortAnswer,
-      deterministicDetailedReasoning: plan.detailedReasoning
-    };
-  }
-
-  if (questionType === "utilization_coaching") {
-  const utilizationText =
-    utilization.utilizationPercent !== null
-      ? `The member's simulated outside-card utilization is approximately ${utilization.utilizationPercent.toFixed(
-          2
-        )}% based on total outside balances of $${utilization.totalBalance.toFixed(
-          2
-        )} and total outside limits of $${utilization.totalLimit.toFixed(2)}.`
-      : "The member's exact utilization could not be calculated from available card data.";
-
-  const fallbackAnswer =
-    utilization.utilizationPercent !== null
-      ? `Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. This member's simulated outside-card utilization is about ${utilization.utilizationPercent.toFixed(
-          2
-        )}%, so a practical next step is to reduce balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`
-      : "Keeping utilization lower can support financial advancement because it shows the member is using less of their available credit. A practical next step is to reduce balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.";
-
-  return {
-    deterministicShortAnswer: fallbackAnswer,
-    deterministicDetailedReasoning:
-      `${utilizationText} The member asked about utilization, not balance transfers. Do not recommend a balance transfer unless the member specifically asks about transfers, APR, payoff strategy, or multiple cards. Provide a finished member-facing answer, not instructions.`
-  };
-}
-
-  if (questionType === "tier_progression") {
-    const readinessStatus = memberCoachContext?.calculated_readiness_status || "unknown";
-    const currentTier = user?.current_tier || "current";
-    const score = memberCoachContext?.credit_score;
-    const ascendMinScore = memberCoachContext?.ascend_min_score;
-    const nextFocus = memberCoachContext?.next_focus_area || "credit profile";
-    const onTimeStatus = memberCoachContext?.on_time_status || "unknown";
-    const utilizationStatus = memberCoachContext?.utilization_status || "unknown";
-
-    const readinessLabel = readinessStatus === "nearly_ready"
-      ? "nearly ready"
-      : readinessStatus === "ready"
-        ? "ready"
-        : "not yet at the target";
-
-    const deterministicShortAnswer = [
-      `Hi ${getFirstName(user) || "there"},`,
-      `Based on your simulated profile, you are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}.`,
-      `Your on-time payment behavior and utilization indicators are meeting expectations, which are positive advancement signals.`,
-      `Your next focus area is your ${nextFocus}. Your simulated score is currently ${score || "unknown"}, while ${currentTier === "Merit" ? "Ascend" : currentTier} readiness begins at ${ascendMinScore || "the target score"}.`,
-      `KEYR cannot guarantee advancement or approval decisions, but you appear to be making strong progress toward ${currentTier === "Merit" ? "Ascend" : currentTier} readiness.`
-    ].join(" ");
-
-    return {
-      deterministicShortAnswer,
-      deterministicDetailedReasoning:
-        `Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`
-    };
-  }
-
-  if (questionType === "support_escalation") {
-    return {
-      deterministicShortAnswer:
-        "This question may involve support, hardship, legal, fraud, dispute, collections, or bankruptcy concerns. Provide a safe, brief response and recommend contacting KEYR support for review.",
-      deterministicDetailedReasoning:
-        "Do not provide legal, bankruptcy, tax, or formal credit-repair advice. Keep the response supportive and direct the member to support."
-    };
-  }
-
-  return {
-    deterministicShortAnswer:
-      `The member is currently in the ${user.current_tier || "current"} tier. Provide a short, helpful KEYR coaching response based on the question. Do not force a balance-transfer recommendation unless the member asks about transfers, APR, payoff, or multiple cards.`,
-    deterministicDetailedReasoning:
-      "Use the available profile and card context only as background. Keep the response concise, practical, encouraging, and accurate."
   };
 }
 
@@ -624,6 +432,82 @@ function buildBalanceTransferTimingContext() {
   };
 }
 
+async function getKnowledgeArticleByCode(pool, articleCode, matchWeight = 100) {
+  const result = await pool
+    .request()
+    .input("article_code", sql.NVarChar(150), articleCode)
+    .input("match_weight", sql.Int, matchWeight)
+    .query(`
+      SELECT TOP 1
+          article_id,
+          article_code,
+          title,
+          approved_answer,
+          short_answer,
+          recommended_model,
+          escalation_required,
+          human_review_required,
+          @match_weight AS best_match_weight
+      FROM dbo.AiKnowledgeArticles
+      WHERE article_code = @article_code
+        AND is_active = 1;
+    `);
+
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+function getFallbackKnowledgeArticle(question) {
+  if (isTransferTimingQuestion(question)) {
+    return {
+      article_id: null,
+      article_code: "BT_022_TRANSFER_TIMING",
+      title: "How long does a balance transfer take?",
+      approved_answer:
+        "Balance transfers usually take 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline.",
+      short_answer:
+        "Balance transfers usually take 5 to 7 business days to complete, and weekends and bank holidays do not count toward that timeline.",
+      recommended_model: "gpt-5-mini",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  if (isNextStepQuestion(question)) {
+    return {
+      article_id: null,
+      article_code: "COACH_042_FOCUS_NEXT",
+      title: "What should I do next?",
+      approved_answer:
+        "Focus on the next best action based on current readiness, dashboard guidance, and the member's next focus area.",
+      short_answer:
+        "Focus on the next best action based on readiness signals and dashboard guidance.",
+      recommended_model: "DeepSeek-V4-Pro",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  if (isPayFirstQuestion(question)) {
+    return {
+      article_id: null,
+      article_code: "COACH_048_PAY_FIRST",
+      title: "Which balance should I pay first?",
+      approved_answer:
+        "KEYR may recommend paying high-APR balances first for interest savings, while also keeping accounts current and considering utilization and due dates.",
+      short_answer:
+        "KEYR may prioritize high-APR balances while keeping accounts current.",
+      recommended_model: "DeepSeek-V4-Pro",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  return null;
+}
+
 async function findKnowledgeArticle(pool, question) {
   const cleanQuestion = (question || "").trim();
 
@@ -631,65 +515,136 @@ async function findKnowledgeArticle(pool, question) {
     return null;
   }
 
-  if (
-    isTransferTimingQuestion(cleanQuestion) ||
-    isPayFirstQuestion(cleanQuestion) ||
-    isNextStepQuestion(cleanQuestion)
-  ) {
-    return getFallbackKnowledgeArticle(cleanQuestion);
+  if (isTransferTimingQuestion(cleanQuestion)) {
+    const article = await getKnowledgeArticleByCode(
+      pool,
+      "BT_022_TRANSFER_TIMING",
+      100
+    );
+
+    return article || getFallbackKnowledgeArticle(cleanQuestion);
+  }
+
+  if (isNextStepQuestion(cleanQuestion)) {
+    const article = await getKnowledgeArticleByCode(
+      pool,
+      "COACH_042_FOCUS_NEXT",
+      100
+    );
+
+    return article || getFallbackKnowledgeArticle(cleanQuestion);
+  }
+
+  if (isPayFirstQuestion(cleanQuestion)) {
+    const article = await getKnowledgeArticleByCode(
+      pool,
+      "COACH_048_PAY_FIRST",
+      100
+    );
+
+    return article || getFallbackKnowledgeArticle(cleanQuestion);
   }
 
   const result = await pool
     .request()
     .input("question", sql.NVarChar(500), cleanQuestion)
     .query(`
+      WITH ScoredArticles AS (
+          SELECT
+              a.article_id,
+              a.article_code,
+              a.title,
+              a.approved_answer,
+              a.short_answer,
+              a.recommended_model,
+              a.escalation_required,
+              a.human_review_required,
+              MAX(
+                  q.match_weight
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%' + LOWER(a.title) + '%'
+                      THEN 100 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%' + LOWER(q.question_text) + '%'
+                      THEN 100 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(q.question_text) LIKE '%' + LOWER(@question) + '%'
+                      THEN 80 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%balance transfer%'
+                           AND a.article_code LIKE 'BT_%'
+                      THEN 60 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%ascend%'
+                           AND a.article_code = 'COACH_043_READY_ASCEND'
+                      THEN 100 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%apex%'
+                           AND a.article_code = 'COACH_044_FAR_FROM_APEX'
+                      THEN 100 ELSE 0
+                  END
+                  +
+                  CASE
+                      WHEN LOWER(@question) LIKE '%utilization%'
+                           AND a.article_code LIKE 'UTIL_%'
+                      THEN 80 ELSE 0
+                  END
+              ) AS best_match_weight
+          FROM dbo.AiKnowledgeArticleQuestions q
+          INNER JOIN dbo.AiKnowledgeArticles a
+              ON q.article_id = a.article_id
+          WHERE
+              q.is_active = 1
+              AND a.is_active = 1
+              AND (
+                    LOWER(@question) LIKE '%' + LOWER(q.question_text) + '%'
+                    OR LOWER(q.question_text) LIKE '%' + LOWER(@question) + '%'
+                    OR LOWER(@question) LIKE '%' + LOWER(a.title) + '%'
+                    OR LOWER(@question) LIKE '%balance transfer%'
+                    OR LOWER(@question) LIKE '%utilization%'
+                    OR LOWER(@question) LIKE '%ascend%'
+                    OR LOWER(@question) LIKE '%apex%'
+                    OR LOWER(@question) LIKE '%snowball%'
+                    OR LOWER(@question) LIKE '%avalanche%'
+                    OR LOWER(@question) LIKE '%which card%'
+                    OR LOWER(@question) LIKE '%pay first%'
+                  )
+          GROUP BY
+              a.article_id,
+              a.article_code,
+              a.title,
+              a.approved_answer,
+              a.short_answer,
+              a.recommended_model,
+              a.escalation_required,
+              a.human_review_required
+      )
       SELECT TOP 1
-          a.article_id,
-          a.article_code,
-          a.title,
-          a.approved_answer,
-          a.short_answer,
-          a.recommended_model,
-          a.escalation_required,
-          a.human_review_required,
-          MAX(q.match_weight) AS best_match_weight
-      FROM dbo.AiKnowledgeArticleQuestions q
-      INNER JOIN dbo.AiKnowledgeArticles a
-          ON q.article_id = a.article_id
-      WHERE q.is_active = 1
-        AND a.is_active = 1
-        AND (
-              LOWER(@question) LIKE '%' + LOWER(q.question_text) + '%'
-              OR LOWER(q.question_text) LIKE '%' + LOWER(@question) + '%'
-              OR LOWER(@question) LIKE '%' + LOWER(a.title) + '%'
-              OR LOWER(a.title) LIKE '%' + LOWER(@question) + '%'
-              OR LOWER(a.keywords) LIKE '%' + LOWER(@question) + '%'
-              OR LOWER(q.keywords) LIKE '%' + LOWER(@question) + '%'
-              OR LOWER(@question) LIKE '%pay first%'
-              OR LOWER(@question) LIKE '%reduce interest%'
-              OR LOWER(@question) LIKE '%interest faster%'
-              OR LOWER(@question) LIKE '%which balance%'
-              OR LOWER(@question) LIKE '%which card%'
-              OR LOWER(@question) LIKE '%highest apr%'
-              OR LOWER(q.question_text) LIKE '%pay first%'
-              OR LOWER(q.question_text) LIKE '%reduce interest%'
-              OR LOWER(q.question_text) LIKE '%highest apr%'
-              OR LOWER(q.keywords) LIKE '%pay first%'
-              OR LOWER(q.keywords) LIKE '%reduce interest%'
-              OR LOWER(q.keywords) LIKE '%highest apr%'
-            )
-      GROUP BY
-          a.article_id,
-          a.article_code,
-          a.title,
-          a.approved_answer,
-          a.short_answer,
-          a.recommended_model,
-          a.escalation_required,
-          a.human_review_required
+          article_id,
+          article_code,
+          title,
+          approved_answer,
+          short_answer,
+          recommended_model,
+          escalation_required,
+          human_review_required,
+          best_match_weight
+      FROM ScoredArticles
+      WHERE best_match_weight >= 100
       ORDER BY
           best_match_weight DESC,
-          a.article_code;
+          article_code;
     `);
 
   if (result.recordset.length > 0) {
@@ -698,6 +653,7 @@ async function findKnowledgeArticle(pool, question) {
 
   return getFallbackKnowledgeArticle(cleanQuestion);
 }
+
 async function getMemberCoachContext(pool, simUserId) {
   if (!simUserId) {
     return null;
@@ -751,6 +707,330 @@ async function getMemberCoachContext(pool, simUserId) {
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
+function determineProactivePrompt(memberCoachContext) {
+  if (!memberCoachContext) {
+    return {
+      shouldProactivelyPrompt: false,
+      promptType: "none",
+      promptSeverity: "none",
+      reason: "No member coach context available."
+    };
+  }
+
+  const recommendedPayment = Number(
+    memberCoachContext.recommended_payment_before_close || 0
+  );
+
+  const daysUntilDue = Number(
+    memberCoachContext.days_until_due_date ?? 999
+  );
+
+  const daysUntilStatementClose = Number(
+    memberCoachContext.days_until_statement_close ?? 999
+  );
+
+  const autopayEnabled =
+    memberCoachContext.autopay_enabled === true ||
+    memberCoachContext.autopay_enabled === 1;
+
+  const readinessStatus =
+    memberCoachContext.calculated_readiness_status || "";
+
+  const nextFocusArea =
+    memberCoachContext.next_focus_area || "";
+
+  if (daysUntilDue <= 7 && !autopayEnabled) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "payment_due_action",
+      promptSeverity: "high",
+      reason:
+        "Payment due date is approaching and autopay is not enabled."
+    };
+  }
+
+  if (recommendedPayment > 0 && daysUntilStatementClose >= 0) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "statement_close_action",
+      promptSeverity: "medium",
+      reason:
+        "Statement close action is recommended based on projected balance."
+    };
+  }
+
+  if (
+    readinessStatus === "nearly_ready" &&
+    nextFocusArea
+  ) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "readiness_next_step",
+      promptSeverity: "low",
+      reason:
+        "Member is nearly ready and has a clear next focus area."
+    };
+  }
+
+  if (
+    memberCoachContext.utilization_status === "below" ||
+    memberCoachContext.credit_score_status === "below"
+  ) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "profile_improvement",
+      promptSeverity: "medium",
+      reason:
+        "Member has a profile improvement opportunity."
+    };
+  }
+
+  return {
+    shouldProactivelyPrompt: false,
+    promptType: "on_track",
+    promptSeverity: "none",
+    reason:
+      "Member appears on track with no immediate proactive action required."
+  };
+}
+
+function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
+  const firstName = memberCoachContext?.first_name || "Member";
+
+  const recommendedPayment = Number(
+    memberCoachContext?.recommended_payment_before_close || 0
+  );
+
+  const daysUntilDue = Number(
+    memberCoachContext?.days_until_due_date ?? 999
+  );
+
+  const nextFocusArea =
+    memberCoachContext?.next_focus_area || "your financial profile";
+
+  const readinessStatus =
+    (memberCoachContext?.calculated_readiness_status || "")
+      .replaceAll("_", " ");
+
+  if (proactiveDecision.promptType === "statement_close_action") {
+    return `Hi ${firstName}, your statement closes soon. A payment of $${recommendedPayment.toFixed(
+      2
+    )} before statement close may help keep your projected balance closer to your target. Your next focus area is strengthening ${nextFocusArea.toLowerCase()}.`;
+  }
+
+  if (proactiveDecision.promptType === "payment_due_action") {
+    return `Hi ${firstName}, your payment due date is approaching in ${daysUntilDue} day${
+      daysUntilDue === 1 ? "" : "s"
+    }. Scheduling a payment can help protect your on-time payment history.`;
+  }
+
+  if (proactiveDecision.promptType === "readiness_next_step") {
+    return `Hi ${firstName}, you are currently ${readinessStatus} for advancement. Your next focus area is strengthening ${nextFocusArea.toLowerCase()}. Keep maintaining on-time payments and low utilization to support your progress.`;
+  }
+
+  if (proactiveDecision.promptType === "profile_improvement") {
+    return `Hi ${firstName}, KEYR sees an opportunity to strengthen your profile. Your next focus area is ${nextFocusArea.toLowerCase()}, and consistent payments plus lower balances may help support your progress over time.`;
+  }
+
+  return `Hi ${firstName}, you appear to be on track today. You can open your KEYR AI Coach anytime to ask about readiness, utilization, payments, or debt strategy.`;
+}
+
+function buildSuggestedQuestions(memberCoachContext, proactiveDecision) {
+  const questions = [];
+
+  if (proactiveDecision.promptType === "statement_close_action") {
+    questions.push(
+      "Why is KEYR recommending a payment before statement close?",
+      "How does this affect my utilization?",
+      "Am I still on track for Ascend?"
+    );
+  } else if (proactiveDecision.promptType === "payment_due_action") {
+    questions.push(
+      "What happens if I miss a payment?",
+      "Should I turn on autopay?",
+      "How do payments affect my readiness?"
+    );
+  } else if (proactiveDecision.promptType === "readiness_next_step") {
+    questions.push(
+      "Am I ready for Ascend?",
+      "What should I do next?",
+      "What is holding me back?"
+    );
+  } else if (proactiveDecision.promptType === "profile_improvement") {
+    questions.push(
+      "What is hurting my profile the most?",
+      "How do I improve my profile?",
+      "How do I move closer to Ascend?"
+    );
+  } else {
+    questions.push(
+      "How am I doing?",
+      "What should I focus on next?",
+      "How do I improve my utilization?"
+    );
+  }
+
+  questions.push(
+    "Which balance should I pay first?",
+    "How long does a balance transfer take?"
+  );
+
+  return questions.slice(0, 5);
+}
+
+function buildCoachContext({
+  questionType,
+  user,
+  externalCards,
+  scenario,
+  plan,
+  knowledgeArticle,
+  memberCoachContext
+}) {
+  const utilization = calculateExternalUtilization(externalCards || []);
+  const firstName = getFirstName(user) || "there";
+
+  if (
+    (questionType === "tier_progression" || questionType === "next_step") &&
+    knowledgeArticle &&
+    memberCoachContext
+  ) {
+    const readinessStatus =
+      memberCoachContext.calculated_readiness_status || "unknown";
+
+    const currentTier =
+      user?.current_tier || "current";
+
+    const score =
+      memberCoachContext.credit_score;
+
+    const ascendMinScore =
+      memberCoachContext.ascend_min_score;
+
+    const nextFocus =
+      memberCoachContext.next_focus_area || "credit profile";
+
+    const onTimeStatus =
+      memberCoachContext.on_time_status || "unknown";
+
+    const utilizationStatus =
+      memberCoachContext.utilization_status || "unknown";
+
+    const nextBestAction =
+      memberCoachContext.next_best_action_message ||
+      "Continue making consistent payments and keep your account in good standing.";
+
+    const readinessLabel =
+      readinessStatus === "nearly_ready"
+        ? "nearly ready"
+        : readinessStatus === "ready" || readinessStatus === "ready_for_review"
+          ? "ready for review"
+          : "not yet at the target";
+
+    const deterministicShortAnswer = [
+      `Hi ${firstName},`,
+      `your next focus area is strengthening your ${nextFocus.toLowerCase()}.`,
+      `You are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}.`,
+      `Your on-time payment and utilization indicators are ${onTimeStatus === "met" && utilizationStatus === "met" ? "meeting expectations" : "areas to monitor"}.`,
+      `${nextBestAction}`,
+      `KEYR cannot guarantee advancement, but continuing positive payment behavior and improving your ${nextFocus.toLowerCase()} may strengthen your readiness over time.`
+    ].join(" ");
+
+    return {
+      deterministicShortAnswer,
+      deterministicDetailedReasoning:
+        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Next best action: ${nextBestAction}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`,
+      knowledgeArticleUsed: {
+        articleId: knowledgeArticle.article_id,
+        articleCode: knowledgeArticle.article_code,
+        title: knowledgeArticle.title,
+        recommendedModel: knowledgeArticle.recommended_model,
+        escalationRequired: knowledgeArticle.escalation_required,
+        humanReviewRequired: knowledgeArticle.human_review_required,
+        bestMatchWeight: knowledgeArticle.best_match_weight
+      }
+    };
+  }
+
+  if (knowledgeArticle) {
+    let timingContext = null;
+
+    if (
+      knowledgeArticle.article_code === "BT_022_TRANSFER_TIMING" ||
+      questionType === "transfer_timing"
+    ) {
+      timingContext = buildBalanceTransferTimingContext();
+    }
+
+    const timingText = timingContext
+      ? ` If estimated today, a ${timingContext.businessDayWindow} processing window would place the estimated completion between ${timingContext.estimatedEarliestCompletion} and ${timingContext.estimatedLatestCompletion}. Weekends are excluded from this estimate. Actual timing can vary by creditor, review, processing method, and holidays.`
+      : "";
+
+    return {
+      deterministicShortAnswer:
+        `${firstName}, ${knowledgeArticle.short_answer || knowledgeArticle.approved_answer}`,
+      deterministicDetailedReasoning:
+        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Approved answer: ${knowledgeArticle.approved_answer}.${timingText}`,
+      knowledgeArticleUsed: {
+        articleId: knowledgeArticle.article_id,
+        articleCode: knowledgeArticle.article_code,
+        title: knowledgeArticle.title,
+        recommendedModel: knowledgeArticle.recommended_model,
+        escalationRequired: knowledgeArticle.escalation_required,
+        humanReviewRequired: knowledgeArticle.human_review_required,
+        bestMatchWeight: knowledgeArticle.best_match_weight
+      }
+    };
+  }
+
+  if (questionType === "transfer_strategy" || questionType === "payoff_strategy") {
+    return {
+      deterministicShortAnswer: plan.shortAnswer,
+      deterministicDetailedReasoning: plan.detailedReasoning
+    };
+  }
+
+  if (questionType === "utilization_coaching") {
+    const utilizationText =
+      utilization.utilizationPercent !== null
+        ? `The member's simulated outside-card utilization is approximately ${utilization.utilizationPercent.toFixed(
+            2
+          )}% based on total outside balances of $${utilization.totalBalance.toFixed(
+            2
+          )} and total outside limits of $${utilization.totalLimit.toFixed(2)}.`
+        : "The member's exact utilization could not be calculated from available card data.";
+
+    const fallbackAnswer =
+      utilization.utilizationPercent !== null
+        ? `Hi ${firstName}, keeping your utilization lower can support financial advancement because it shows you are using less of your available credit. Your simulated outside-card utilization is about ${utilization.utilizationPercent.toFixed(
+            2
+          )}%, so a practical next step is reducing balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`
+        : `Hi ${firstName}, keeping your utilization lower can support financial advancement because it shows you are using less of your available credit. A practical next step is reducing balances over time while continuing on-time payments. KEYR encourages working toward a low utilization target, such as near 8%, without guaranteeing a credit score increase or tier upgrade.`;
+
+    return {
+      deterministicShortAnswer: fallbackAnswer,
+      deterministicDetailedReasoning:
+        `${utilizationText} The member asked about utilization, not balance transfers. Do not recommend a balance transfer unless the member specifically asks about transfers, APR, payoff strategy, or multiple cards. Provide a finished member-facing answer, not instructions.`
+    };
+  }
+
+  if (questionType === "support_escalation") {
+    return {
+      deterministicShortAnswer:
+        "This question may involve support, hardship, legal, fraud, dispute, collections, or bankruptcy concerns. Provide a safe, brief response and recommend contacting KEYR support for review.",
+      deterministicDetailedReasoning:
+        "Do not provide legal, bankruptcy, tax, or formal credit-repair advice. Keep the response supportive and direct the member to support."
+    };
+  }
+
+  return {
+    deterministicShortAnswer:
+      `The member is currently in the ${user.current_tier || "current"} tier. Provide a short, helpful KEYR coaching response based on the question. Do not force a balance-transfer recommendation unless the member asks about transfers, APR, payoff, or multiple cards.`,
+    deterministicDetailedReasoning:
+      "Use the available profile and card context only as background. Keep the response concise, practical, encouraging, and accurate."
+  };
+}
+
 async function generateAiCoachAnswer({
   deployment,
   question,
@@ -781,50 +1061,45 @@ async function generateAiCoachAnswer({
   const url = `${cleanEndpoint}/openai/v1/chat/completions`;
 
   const systemMessage = `
-  You are KEYR's AI Financial Coach.
+You are KEYR's AI Financial Coach.
 
-  KEYR helps members reduce revolving debt, improve utilization, understand payoff options,
-  and progress toward better financial tiers over time.
+KEYR helps members reduce revolving debt, improve utilization, understand payoff options,
+and progress toward better financial tiers over time.
 
-  Your job:
-  - Give concise, practical, member-friendly coaching.
-  - If the member's first name is provided, the final response MUST begin the first sentence with that first name exactly as provided.
-  - Example: "Chris, keeping your utilization lower can help support your financial advancement." or "Hi Chris, focusing on on-time payments and lower credit usage can help."
-  - Keep the tone warm, encouraging, and proactive while remaining objective and practical.
-  - Focus on helping the member act efficiently and make steady progress without sounding overly formal or cold.
-  - If the member's first name is not provided, do not invent a name; use direct "you" and "your" language instead.
-  - Use KEYR deterministic context as factual background, but respond directly to the member's actual question.
-  - Return a finished member-facing answer, not instructions, placeholders, or a restatement of internal guidance.
-  - Match the answer to the member's actual question type.
-  - If the deterministic context contains coaching guidance, rewrite it as a natural response to the member.
-  - Do not copy the deterministic context word-for-word unless it is already written as a finished member-facing answer.
+Your job:
+- Give concise, practical, member-friendly coaching.
+- If the member's first name is provided, the final response MUST begin the first sentence with that first name exactly as provided.
+- Keep the tone warm, encouraging, and proactive while remaining objective and practical.
+- Use KEYR deterministic context as factual background, but respond directly to the member's actual question.
+- Return a finished member-facing answer, not instructions, placeholders, or a restatement of internal guidance.
+- Match the answer to the member's actual question type.
+- If the deterministic context contains coaching guidance, rewrite it as a natural response to the member.
+- Do not copy the deterministic context word-for-word unless it is already written as a finished member-facing answer.
 
-  Critical rules:
-  - Do not invent balances, APRs, credit limits, payments, scores, approval odds, or payoff timelines.
-  - Do not guarantee credit score increases, approvals, underwriting decisions, or tier upgrades.
-  - Do not provide legal, tax, bankruptcy, investment, or formal credit-repair advice.
-  - Do not recommend a balance transfer unless the member asks about transfers, APR, payoff, debt strategy, or multiple cards.
-  - If the member asks about utilization, answer about utilization and do not force a transfer recommendation.
-  - If the member asks about tier progression, explain habits and milestones without guarantees.
-  - If the member asks about hardship, fraud, disputes, collections, lawsuits, bankruptcy, or legal issues, recommend contacting KEYR support.
-  - Keep the response under 125 words unless the member specifically asks for a detailed plan.
+Critical rules:
+- Do not invent balances, APRs, credit limits, payments, scores, approval odds, or payoff timelines.
+- Do not guarantee credit score increases, approvals, underwriting decisions, or tier upgrades.
+- Do not provide legal, tax, bankruptcy, investment, or formal credit-repair advice.
+- Do not recommend a balance transfer unless the member asks about transfers, APR, payoff, debt strategy, or multiple cards.
+- If the member asks about utilization, answer about utilization and do not force a transfer recommendation.
+- If the member asks about tier progression, explain habits and milestones without guarantees.
+- If the member asks about hardship, fraud, disputes, collections, lawsuits, bankruptcy, or legal issues, recommend contacting KEYR support.
+- Keep the response under 125 words unless the member specifically asks for a detailed plan.
 
-  Response style:
-  - Start with the member's first name if available.
-  - Use "you" and "your" language throughout the response.
-  - Rewrite any wording that uses "the member", "this member", "their", or "they" into direct second-person language such as "you", "your", or "your own".
-  - Sound like a helpful financial coach, not a system message.
-  - Do not say "the member" in the final answer.
-  - Do not expose internal phrases such as "deterministic context," "question type," or "routing reason."
+Response style:
+- Start with the member's first name if available.
+- Use "you" and "your" language throughout the response.
+- Do not say "the member" in the final answer.
+- Do not expose internal phrases such as "deterministic context," "question type," or "routing reason."
 
-  Knowledge Base rules:
-  - If a KEYR Knowledge Base article is provided, treat it as the official answer.
-  - Do not contradict the approved answer.
-  - Rewrite the approved answer in a natural, member-facing tone.
-  - If human_review_required is true, avoid making promises and use careful language.
-  - If escalation_required is true, recommend contacting KEYR support.
-  - Do not expose article codes, internal match weights, routing reasons, or table names to the member.
-  `;
+Knowledge Base rules:
+- If a KEYR Knowledge Base article is provided, treat it as the official answer.
+- Do not contradict the approved answer.
+- Rewrite the approved answer in a natural, member-facing tone.
+- If human_review_required is true, avoid making promises and use careful language.
+- If escalation_required is true, recommend contacting KEYR support.
+- Do not expose article codes, internal match weights, routing reasons, or table names to the member.
+`;
 
   const userMessage = `
 Question type:
@@ -838,9 +1113,6 @@ ${question || "No specific question provided."}
 
 Routing reason:
 ${routingReason}
-
-If the member first name is provided, the final response MUST begin with that first name in the first sentence.
-If the member first name is empty, do not invent a first name.
 
 KEYR deterministic short context:
 ${deterministicShortAnswer}
@@ -859,7 +1131,6 @@ ${JSON.stringify(
   },
   null,
   2
-  
 )}
 
 External cards:
@@ -888,7 +1159,7 @@ ${JSON.stringify(memberCoachContext || {}, null, 2)}
           content: userMessage
         }
       ],
-      temperature: 1
+      temperature: 0.4
     };
 
     if ((deployment || "").toLowerCase().includes("gpt-5")) {
@@ -922,7 +1193,10 @@ ${JSON.stringify(memberCoachContext || {}, null, 2)}
       parsed?.choices?.[0]?.message?.content?.trim() ||
       deterministicShortAnswer;
 
-    const formattedAiShortAnswer = ensureNameGreeting(aiShortAnswer, user?.first_name);
+    const formattedAiShortAnswer = ensureNameGreeting(
+      aiShortAnswer,
+      user?.first_name
+    );
 
     return {
       aiWasUsed: true,
@@ -957,9 +1231,11 @@ app.http("simAiFinancialCoach", {
 
     try {
       const body = await httpRequest.json();
+
       const simUserId = (body.simUserId || "").trim();
       const email = (body.email || "").trim();
       const question = (body.question || "").trim();
+      const mode = (body.mode || "ask").trim();
 
       if (!simUserId && !email) {
         return {
@@ -1029,6 +1305,47 @@ app.http("simAiFinancialCoach", {
 
       const user = userResult.recordset[0];
 
+      const memberCoachContext = await getMemberCoachContext(
+        pool,
+        user.sim_user_id
+      );
+
+      if (mode === "dashboard_check") {
+        const proactiveDecision =
+          determineProactivePrompt(memberCoachContext);
+
+        const dashboardShortAnswer =
+          buildDashboardPromptAnswer(
+            memberCoachContext,
+            proactiveDecision
+          );
+
+        return {
+          status: 200,
+          headers: corsHeaders,
+          jsonBody: {
+            success: true,
+            mode: "dashboard_check",
+            user: {
+              simUserId: user.sim_user_id,
+              name: `${user.first_name} ${user.last_name}`,
+              email: user.email,
+              currentTier: user.current_tier
+            },
+            coachAvailable: true,
+            shouldProactivelyPrompt:
+              proactiveDecision.shouldProactivelyPrompt,
+            promptType: proactiveDecision.promptType,
+            promptSeverity: proactiveDecision.promptSeverity,
+            promptReason: proactiveDecision.reason,
+            shortAnswer: dashboardShortAnswer,
+            suggestedQuestions:
+              buildSuggestedQuestions(memberCoachContext, proactiveDecision),
+            memberCoachContext
+          }
+        };
+      }
+
       const cardsResult = await pool
         .request()
         .input("sim_user_id", sql.UniqueIdentifier, user.sim_user_id)
@@ -1085,13 +1402,14 @@ app.http("simAiFinancialCoach", {
 
       const externalCards = cardsResult.recordset;
       const scenario = scenarioResult.recordset[0];
+
       const knowledgeArticle = await findKnowledgeArticle(pool, question);
-      const memberCoachContext = await getMemberCoachContext(
-        pool,
-        user.sim_user_id
+      const routing = chooseModel(
+        question,
+        externalCards.length,
+        knowledgeArticle
       );
 
-      const routing = chooseModel(question, externalCards.length, knowledgeArticle);
       const plan = buildTransferPlan(externalCards, scenario);
 
       const coachContext = buildCoachContext({
@@ -1104,9 +1422,11 @@ app.http("simAiFinancialCoach", {
         memberCoachContext
       });
 
-      const deterministicShortAnswer = coachContext.deterministicShortAnswer;
+      const deterministicShortAnswer =
+        coachContext.deterministicShortAnswer;
+
       const deterministicDetailedReasoning =
-            coachContext.deterministicDetailedReasoning;
+        coachContext.deterministicDetailedReasoning;
 
       const aiResult = await generateAiCoachAnswer({
         deployment: routing.model,
@@ -1118,9 +1438,10 @@ app.http("simAiFinancialCoach", {
         externalCards,
         scenario,
         routingReason: routing.reason,
-        knowledgeArticle: coachContext.knowledgeArticleUsed || knowledgeArticle,
+        knowledgeArticle:
+          coachContext.knowledgeArticleUsed || knowledgeArticle,
         memberCoachContext
-});
+      });
 
       const finalShortAnswer = ensureNameGreeting(
         aiResult.shortAnswer || deterministicShortAnswer,
@@ -1132,12 +1453,13 @@ app.http("simAiFinancialCoach", {
         "sim_user_id, sim_bt_scenario_id, user_question, scenario_type, recommended_strategy, recommended_card_label, recommended_transfer_amount, model_selected, routing_reason, short_answer, detailed_reasoning) " +
         "VALUES (@sim_user_id, @sim_bt_scenario_id, @user_question, @scenario_type, @recommended_strategy, @recommended_card_label, @recommended_transfer_amount, @model_selected, @routing_reason, @short_answer, @detailed_reasoning);";
 
-      const request = pool.request();
-      await request
+      const insertRequest = pool.request();
+
+      await insertRequest
         .input("sim_user_id", sql.UniqueIdentifier, user.sim_user_id)
         .input("sim_bt_scenario_id", sql.UniqueIdentifier, scenario.sim_bt_scenario_id)
         .input("user_question", sql.NVarChar(sql.MAX), question || null)
-        .input("scenario_type", sql.NVarChar(100), "balance_transfer_strategy")
+        .input("scenario_type", sql.NVarChar(100), routing.questionType || "ai_coach")
         .input("recommended_strategy", sql.NVarChar(100), plan.recommendedStrategy)
         .input("recommended_card_label", sql.NVarChar(100), plan.recommendedCardLabel)
         .input("recommended_transfer_amount", sql.Decimal(18, 2), plan.recommendedTransferAmount)
@@ -1152,6 +1474,7 @@ app.http("simAiFinancialCoach", {
         headers: corsHeaders,
         jsonBody: {
           success: true,
+          mode,
           user: {
             simUserId: user.sim_user_id,
             name: `${user.first_name} ${user.last_name}`,
@@ -1169,12 +1492,12 @@ app.http("simAiFinancialCoach", {
               : null
           },
           routing: {
-          model: routing.model,
-          modelFamily: routing.modelFamily,
-          questionType: routing.questionType,
-          reason: routing.reason,
-          aiWasUsed: aiResult.aiWasUsed,
-          aiError: aiResult.aiError
+            model: routing.model,
+            modelFamily: routing.modelFamily,
+            questionType: routing.questionType,
+            reason: routing.reason,
+            aiWasUsed: aiResult.aiWasUsed,
+            aiError: aiResult.aiError
           },
           knowledgeArticle: coachContext.knowledgeArticleUsed || null,
           memberCoachContext,
