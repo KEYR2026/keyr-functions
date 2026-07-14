@@ -527,6 +527,10 @@ async function findKnowledgeArticle(pool, question) {
     return null;
   }
 
+  if (isPayFirstQuestion(cleanQuestion)) {
+    return getFallbackKnowledgeArticle(cleanQuestion);
+  }
+
   const result = await pool
     .request()
     .input("question", sql.NVarChar(500), cleanQuestion)
