@@ -165,8 +165,28 @@ function classifyQuestionType(question) {
   return "general_coaching";
 }
 
-function chooseModel(question, cardCount) {
+function chooseModel(question, cardCount, knowledgeArticle) {
   const questionType = classifyQuestionType(question);
+
+  if (knowledgeArticle?.recommended_model) {
+    const recommendedModel = knowledgeArticle.recommended_model;
+
+    if (recommendedModel === "DeepSeek-V4-Pro") {
+      return {
+        model: deepDeployment,
+        modelFamily: "DeepSeek-V4-Pro",
+        questionType,
+        reason: `Knowledge article ${knowledgeArticle.article_code} recommends DeepSeek V4 Pro.`
+      };
+    }
+
+    return {
+      model: fastDeployment,
+      modelFamily: "gpt-5-mini",
+      questionType,
+      reason: `Knowledge article ${knowledgeArticle.article_code} recommends GPT-5 mini.`
+    };
+  }
 
   const deepQuestionTypes = [
     "transfer_strategy",
@@ -274,8 +294,41 @@ function calculateExternalUtilization(cards) {
   };
 }
 
-function buildCoachContext({ questionType, user, externalCards, scenario, plan }) {
+function buildCoachContext({ questionType, user, externalCards, scenario, plan, knowledgeArticle, memberCoachContext }) {
   const utilization = calculateExternalUtilization(externalCards || []);
+
+if (knowledgeArticle) {
+    const firstName = getFirstName(user);
+
+    let timingContext = null;
+
+    if (
+      knowledgeArticle.article_code === "BT_022_TRANSFER_TIMING" ||
+      (questionType || "").includes("balance_transfer")
+    ) {
+      timingContext = buildBalanceTransferTimingContext();
+    }
+
+    const timingText = timingContext
+      ? ` If estimated today, a ${timingContext.businessDayWindow} processing window would place the estimated completion between ${timingContext.estimatedEarliestCompletion} and ${timingContext.estimatedLatestCompletion}. Weekends are excluded from this estimate. Actual timing can vary by creditor, review, processing method, and holidays.`
+      : "";
+
+    return {
+      deterministicShortAnswer:
+        `${firstName}, ${knowledgeArticle.short_answer || knowledgeArticle.approved_answer}`,
+      deterministicDetailedReasoning:
+        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Approved answer: ${knowledgeArticle.approved_answer}.${timingText}`,
+      knowledgeArticleUsed: {
+        articleId: knowledgeArticle.article_id,
+        articleCode: knowledgeArticle.article_code,
+        title: knowledgeArticle.title,
+        recommendedModel: knowledgeArticle.recommended_model,
+        escalationRequired: knowledgeArticle.escalation_required,
+        humanReviewRequired: knowledgeArticle.human_review_required,
+        bestMatchWeight: knowledgeArticle.best_match_weight
+      }
+    };
+  }
 
   if (questionType === "transfer_strategy" || questionType === "payoff_strategy") {
     return {
@@ -334,6 +387,146 @@ function buildCoachContext({ questionType, user, externalCards, scenario, plan }
   };
 }
 
+function addBusinessDays(startDate, businessDays) {
+  const result = new Date(startDate);
+  let addedDays = 0;
+
+  while (addedDays < businessDays) {
+    result.setDate(result.getDate() + 1);
+
+    const day = result.getDay();
+
+    if (day !== 0 && day !== 6) {
+      addedDays += 1;
+    }
+  }
+
+  return result;
+}
+
+function formatDateForMember(date) {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function buildBalanceTransferTimingContext() {
+  const today = new Date();
+
+  const earliest = addBusinessDays(today, 5);
+  const latest = addBusinessDays(today, 10);
+
+  return {
+    estimatedStartDate: formatDateForMember(today),
+    estimatedEarliestCompletion: formatDateForMember(earliest),
+    estimatedLatestCompletion: formatDateForMember(latest),
+    businessDayWindow: "5-10 business days"
+  };
+}
+
+async function findKnowledgeArticle(pool, question) {
+  const cleanQuestion = (question || "").trim();
+
+  if (!cleanQuestion) {
+    return null;
+  }
+
+  const result = await pool
+    .request()
+    .input("question", sql.NVarChar(500), cleanQuestion)
+    .query(`
+      SELECT TOP 1
+          a.article_id,
+          a.article_code,
+          a.title,
+          a.approved_answer,
+          a.short_answer,
+          a.recommended_model,
+          a.escalation_required,
+          a.human_review_required,
+          MAX(q.match_weight) AS best_match_weight
+      FROM dbo.AiKnowledgeArticleQuestions q
+      INNER JOIN dbo.AiKnowledgeArticles a
+          ON q.article_id = a.article_id
+      WHERE q.is_active = 1
+        AND a.is_active = 1
+        AND (
+              LOWER(@question) LIKE '%' + LOWER(q.question_text) + '%'
+              OR LOWER(q.question_text) LIKE '%' + LOWER(@question) + '%'
+              OR LOWER(@question) LIKE '%' + LOWER(a.title) + '%'
+              OR LOWER(a.keywords) LIKE '%' + LOWER(@question) + '%'
+            )
+      GROUP BY
+          a.article_id,
+          a.article_code,
+          a.title,
+          a.approved_answer,
+          a.short_answer,
+          a.recommended_model,
+          a.escalation_required,
+          a.human_review_required
+      ORDER BY
+          best_match_weight DESC,
+          a.article_code;
+    `);
+
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+async function getMemberCoachContext(pool, simUserId) {
+  if (!simUserId) {
+    return null;
+  }
+
+  const result = await pool
+    .request()
+    .input("sim_user_id", sql.UniqueIdentifier, simUserId)
+    .query(`
+      SELECT TOP 1
+          r.sim_user_id,
+          r.first_name,
+          r.last_name,
+          r.email,
+          r.current_tier,
+          r.on_time_cycles_completed,
+          r.on_time_cycles_required,
+          r.on_time_status,
+          r.avg_utilization_percent,
+          r.utilization_target_percent,
+          r.utilization_status,
+          r.credit_score,
+          r.ascend_min_score,
+          r.apex_min_score,
+          r.credit_score_status,
+          r.readiness_indicator_count,
+          r.calculated_readiness_status,
+          r.next_focus_area,
+          d.user_goal,
+          d.guidance_level,
+          d.credit_limit,
+          d.posted_balance,
+          d.pending_debits,
+          d.pending_credits,
+          d.projected_balance,
+          d.target_balance,
+          d.projected_utilization_percent,
+          d.recommended_payment_before_close,
+          d.days_until_statement_close,
+          d.days_until_due_date,
+          d.autopay_enabled,
+          d.dashboard_status,
+          d.dashboard_status_title,
+          d.next_best_action_message
+      FROM dbo.vwSimReadinessSummary r
+      INNER JOIN dbo.vwSimDashboardSummary d
+          ON r.sim_user_id = d.sim_user_id
+      WHERE r.sim_user_id = @sim_user_id;
+    `);
+
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
 async function generateAiCoachAnswer({
   deployment,
   question,
@@ -343,7 +536,9 @@ async function generateAiCoachAnswer({
   user,
   externalCards,
   scenario,
-  routingReason
+  routingReason,
+  knowledgeArticle,
+  memberCoachContext
 }) {
   const formattedDeterministicShortAnswer = ensureNameGreeting(
     deterministicShortAnswer,
@@ -397,7 +592,15 @@ async function generateAiCoachAnswer({
   - Sound like a helpful financial coach, not a system message.
   - Do not say "the member" in the final answer.
   - Do not expose internal phrases such as "deterministic context," "question type," or "routing reason."
-`;
+
+  Knowledge Base rules:
+  - If a KEYR Knowledge Base article is provided, treat it as the official answer.
+  - Do not contradict the approved answer.
+  - Rewrite the approved answer in a natural, member-facing tone.
+  - If human_review_required is true, avoid making promises and use careful language.
+  - If escalation_required is true, recommend contacting KEYR support.
+  - Do not expose article codes, internal match weights, routing reasons, or table names to the member.
+  `;
 
   const userMessage = `
 Question type:
@@ -440,6 +643,12 @@ ${JSON.stringify(externalCards || [], null, 2)}
 
 Balance transfer scenario:
 ${JSON.stringify(scenario || {}, null, 2)}
+
+Knowledge article:
+${JSON.stringify(knowledgeArticle || {}, null, 2)}
+
+Member coach context:
+${JSON.stringify(memberCoachContext || {}, null, 2)}
 `;
 
   try {
@@ -652,8 +861,13 @@ app.http("simAiFinancialCoach", {
 
       const externalCards = cardsResult.recordset;
       const scenario = scenarioResult.recordset[0];
+      const knowledgeArticle = await findKnowledgeArticle(pool, question);
+      const memberCoachContext = await getMemberCoachContext(
+        pool,
+        user.sim_user_id
+      );
 
-      const routing = chooseModel(question, externalCards.length);
+      const routing = chooseModel(question, externalCards.length, knowledgeArticle);
       const plan = buildTransferPlan(externalCards, scenario);
 
       const coachContext = buildCoachContext({
@@ -661,12 +875,14 @@ app.http("simAiFinancialCoach", {
         user,
         externalCards,
         scenario,
-        plan
+        plan,
+        knowledgeArticle,
+        memberCoachContext
       });
 
       const deterministicShortAnswer = coachContext.deterministicShortAnswer;
       const deterministicDetailedReasoning =
-        coachContext.deterministicDetailedReasoning;
+            coachContext.deterministicDetailedReasoning;
 
       const aiResult = await generateAiCoachAnswer({
         deployment: routing.model,
@@ -677,7 +893,9 @@ app.http("simAiFinancialCoach", {
         user,
         externalCards,
         scenario,
-        routingReason: routing.reason
+        routingReason: routing.reason,
+        knowledgeArticle: coachContext.knowledgeArticleUsed || knowledgeArticle,
+        memberCoachContext
 });
 
       const finalShortAnswer = ensureNameGreeting(
@@ -734,6 +952,8 @@ app.http("simAiFinancialCoach", {
           aiWasUsed: aiResult.aiWasUsed,
           aiError: aiResult.aiError
           },
+          knowledgeArticle: coachContext.knowledgeArticleUsed || null,
+          memberCoachContext,
           recommendation: {
             recommendedStrategy: plan.recommendedStrategy,
             recommendedCardLabel: plan.recommendedCardLabel,

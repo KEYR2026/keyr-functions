@@ -3,5 +3,5 @@ Content-Type: application/json
 
 {
   "email": "chris.pendingspend@keyr-sim.test",
-  "question": "Why should I keep my utilization near 8 percent?"
+  "question": "How long does a balance transfer take and do weekends count?"
 }
