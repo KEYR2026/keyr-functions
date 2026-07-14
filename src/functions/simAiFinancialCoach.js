@@ -344,6 +344,15 @@ function calculateExternalUtilization(cards) {
   };
 }
 
+function getFirstName(user) {
+  const rawName = user?.first_name || user?.firstName || user?.name || "";
+  if (typeof rawName !== "string") {
+    return "";
+  }
+
+  return rawName.trim().split(/\s+/)[0] || "";
+}
+
 function buildCoachContext({ questionType, user, externalCards, scenario, plan, knowledgeArticle, memberCoachContext }) {
   const utilization = calculateExternalUtilization(externalCards || []);
 
