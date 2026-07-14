@@ -3,5 +3,5 @@ Content-Type: application/json
 
 {
   "email": "chris.pendingspend@keyr-sim.test",
-  "question": "Am I ready for Ascend?"
+  "question": "What should I do next?"
 }

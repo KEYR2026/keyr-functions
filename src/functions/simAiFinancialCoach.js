@@ -102,6 +102,19 @@ function isPayFirstQuestion(question) {
   );
 }
 
+function isNextStepQuestion(question) {
+  const q = (question || "").toLowerCase();
+  return (
+    q.includes("what should i do next") ||
+    q.includes("what should i do") ||
+    q.includes("what should i focus on") ||
+    q.includes("what do i do next") ||
+    q.includes("what's next") ||
+    q.includes("next step") ||
+    q.includes("what should i do now")
+  );
+}
+
 function getFallbackKnowledgeArticle(question) {
   const q = (question || "").toLowerCase();
 
@@ -130,6 +143,22 @@ function getFallbackKnowledgeArticle(question) {
         "Pay the balance with the highest APR first if you want to reduce interest faster. This usually saves the most interest over time.",
       short_answer:
         "Pay the balance with the highest APR first to reduce interest faster.",
+      recommended_model: "DeepSeek-V4-Pro",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  if (isNextStepQuestion(question)) {
+    return {
+      article_id: 999997,
+      article_code: "COACH_042_FOCUS_NEXT",
+      title: "What should I do next?",
+      approved_answer:
+        "Focus on the next best action based on your current readiness, dashboard guidance, and next focus area.",
+      short_answer:
+        "Focus on your next best action based on your readiness signals and dashboard guidance.",
       recommended_model: "DeepSeek-V4-Pro",
       escalation_required: false,
       human_review_required: false,
@@ -222,6 +251,10 @@ function classifyQuestionType(question) {
     return "transfer_timing";
   }
 
+  if (isNextStepQuestion(question)) {
+    return "next_step";
+  }
+
   if (payoffKeywords.some((word) => q.includes(word))) {
     return "payoff_strategy";
   }
@@ -270,6 +303,15 @@ function chooseModel(question, cardCount, knowledgeArticle) {
       modelFamily: "gpt-5-mini",
       questionType,
       reason: "Transfer timing and processing questions are simple knowledge-based requests routed to the fast model."
+    };
+  }
+
+  if (questionType === "next_step") {
+    return {
+      model: deepDeployment,
+      modelFamily: "DeepSeek-V4-Pro",
+      questionType,
+      reason: "Next-step guidance should use member context and dashboard signals for personalized coaching."
     };
   }
 
@@ -391,7 +433,7 @@ function getFirstName(user) {
 function buildCoachContext({ questionType, user, externalCards, scenario, plan, knowledgeArticle, memberCoachContext }) {
   const utilization = calculateExternalUtilization(externalCards || []);
 
-  if (questionType === "tier_progression" && knowledgeArticle) {
+  if ((questionType === "tier_progression" || questionType === "next_step") && knowledgeArticle) {
     const firstName = getFirstName(user);
     const readinessStatus = memberCoachContext?.calculated_readiness_status || "unknown";
     const currentTier = user?.current_tier || "current";
@@ -400,6 +442,7 @@ function buildCoachContext({ questionType, user, externalCards, scenario, plan, 
     const nextFocus = memberCoachContext?.next_focus_area || "credit profile";
     const onTimeStatus = memberCoachContext?.on_time_status || "unknown";
     const utilizationStatus = memberCoachContext?.utilization_status || "unknown";
+    const nextBestAction = memberCoachContext?.next_best_action_message || "Continue making consistent payments and keep your account in good standing.";
 
     const readinessLabel = readinessStatus === "nearly_ready"
       ? "nearly ready"
@@ -409,16 +452,16 @@ function buildCoachContext({ questionType, user, externalCards, scenario, plan, 
 
     const deterministicShortAnswer = [
       `Hi ${firstName || "there"},`,
-      `Based on your simulated profile, you are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}.`,
-      `Your on-time payment behavior and utilization indicators are meeting expectations, which are positive advancement signals.`,
-      `Your next focus area is your ${nextFocus}. Your simulated score is currently ${score || "unknown"}, while ${currentTier === "Merit" ? "Ascend" : currentTier} readiness begins at ${ascendMinScore || "the target score"}.`,
-      `KEYR cannot guarantee advancement or approval decisions, but you appear to be making strong progress toward ${currentTier === "Merit" ? "Ascend" : currentTier} readiness.`
+      `Your next focus area is strengthening your ${nextFocus}.`,
+      `You are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}, and your on-time payment and utilization indicators are meeting expectations.`,
+      `${nextBestAction}`,
+      `KEYR cannot guarantee advancement, but continuing positive payment behavior and improving your ${nextFocus} may strengthen your readiness over time.`
     ].join(" ");
 
     return {
       deterministicShortAnswer,
       deterministicDetailedReasoning:
-        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`,
+        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Next best action: ${nextBestAction}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`,
       knowledgeArticleUsed: {
         articleId: knowledgeArticle.article_id,
         articleCode: knowledgeArticle.article_code,
