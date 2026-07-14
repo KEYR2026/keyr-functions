@@ -3,5 +3,5 @@ Content-Type: application/json
 
 {
   "email": "chris.pendingspend@keyr-sim.test",
-  "question": "Which balance should I pay first if I want to reduce interest faster?"
+  "question": "Am I ready for Ascend?"
 }

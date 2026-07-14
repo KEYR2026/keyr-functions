@@ -391,7 +391,47 @@ function getFirstName(user) {
 function buildCoachContext({ questionType, user, externalCards, scenario, plan, knowledgeArticle, memberCoachContext }) {
   const utilization = calculateExternalUtilization(externalCards || []);
 
-if (knowledgeArticle) {
+  if (questionType === "tier_progression" && knowledgeArticle) {
+    const firstName = getFirstName(user);
+    const readinessStatus = memberCoachContext?.calculated_readiness_status || "unknown";
+    const currentTier = user?.current_tier || "current";
+    const score = memberCoachContext?.credit_score;
+    const ascendMinScore = memberCoachContext?.ascend_min_score;
+    const nextFocus = memberCoachContext?.next_focus_area || "credit profile";
+    const onTimeStatus = memberCoachContext?.on_time_status || "unknown";
+    const utilizationStatus = memberCoachContext?.utilization_status || "unknown";
+
+    const readinessLabel = readinessStatus === "nearly_ready"
+      ? "nearly ready"
+      : readinessStatus === "ready"
+        ? "ready"
+        : "not yet at the target";
+
+    const deterministicShortAnswer = [
+      `Hi ${firstName || "there"},`,
+      `Based on your simulated profile, you are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}.`,
+      `Your on-time payment behavior and utilization indicators are meeting expectations, which are positive advancement signals.`,
+      `Your next focus area is your ${nextFocus}. Your simulated score is currently ${score || "unknown"}, while ${currentTier === "Merit" ? "Ascend" : currentTier} readiness begins at ${ascendMinScore || "the target score"}.`,
+      `KEYR cannot guarantee advancement or approval decisions, but you appear to be making strong progress toward ${currentTier === "Merit" ? "Ascend" : currentTier} readiness.`
+    ].join(" ");
+
+    return {
+      deterministicShortAnswer,
+      deterministicDetailedReasoning:
+        `Official KEYR Knowledge Base article: ${knowledgeArticle.article_code} - ${knowledgeArticle.title}. Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`,
+      knowledgeArticleUsed: {
+        articleId: knowledgeArticle.article_id,
+        articleCode: knowledgeArticle.article_code,
+        title: knowledgeArticle.title,
+        recommendedModel: knowledgeArticle.recommended_model,
+        escalationRequired: knowledgeArticle.escalation_required,
+        humanReviewRequired: knowledgeArticle.human_review_required,
+        bestMatchWeight: knowledgeArticle.best_match_weight
+      }
+    };
+  }
+
+  if (knowledgeArticle) {
     const firstName = getFirstName(user);
 
     let timingContext = null;
@@ -456,11 +496,32 @@ if (knowledgeArticle) {
 }
 
   if (questionType === "tier_progression") {
+    const readinessStatus = memberCoachContext?.calculated_readiness_status || "unknown";
+    const currentTier = user?.current_tier || "current";
+    const score = memberCoachContext?.credit_score;
+    const ascendMinScore = memberCoachContext?.ascend_min_score;
+    const nextFocus = memberCoachContext?.next_focus_area || "credit profile";
+    const onTimeStatus = memberCoachContext?.on_time_status || "unknown";
+    const utilizationStatus = memberCoachContext?.utilization_status || "unknown";
+
+    const readinessLabel = readinessStatus === "nearly_ready"
+      ? "nearly ready"
+      : readinessStatus === "ready"
+        ? "ready"
+        : "not yet at the target";
+
+    const deterministicShortAnswer = [
+      `Hi ${getFirstName(user) || "there"},`,
+      `Based on your simulated profile, you are currently classified as ${readinessLabel} for ${currentTier === "Merit" ? "Ascend" : currentTier}.`,
+      `Your on-time payment behavior and utilization indicators are meeting expectations, which are positive advancement signals.`,
+      `Your next focus area is your ${nextFocus}. Your simulated score is currently ${score || "unknown"}, while ${currentTier === "Merit" ? "Ascend" : currentTier} readiness begins at ${ascendMinScore || "the target score"}.`,
+      `KEYR cannot guarantee advancement or approval decisions, but you appear to be making strong progress toward ${currentTier === "Merit" ? "Ascend" : currentTier} readiness.`
+    ].join(" ");
+
     return {
-      deterministicShortAnswer:
-        `The member is currently in the ${user.current_tier || "current"} tier. Explain practical ways to progress over time, such as lowering utilization, paying on time, reducing high-APR balances, avoiding unnecessary new debt, and maintaining consistent behavior.`,
+      deterministicShortAnswer,
       deterministicDetailedReasoning:
-        "Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria."
+        `Member readiness status: ${readinessStatus}. On-time status: ${onTimeStatus}. Utilization status: ${utilizationStatus}. Score: ${score}. Ascend minimum score: ${ascendMinScore}. Next focus area: ${nextFocus}. Do not guarantee approval, underwriting outcomes, credit score increases, or tier upgrades. Explain that KEYR progression depends on future eligibility, behavior, and program criteria.`
     };
   }
 
