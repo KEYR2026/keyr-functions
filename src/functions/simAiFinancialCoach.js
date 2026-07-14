@@ -73,6 +73,43 @@ function ensureNameGreeting(text, firstName) {
   return `Hi ${name}, ${sentenceFixedText}`.replace(/,\s+/g, ", ");
 }
 
+function isTransferTimingQuestion(question) {
+  const q = (question || "").toLowerCase();
+  const hasTransferContext = q.includes("balance transfer") || q.includes("transfer");
+  const hasTimingContext =
+    q.includes("how long") ||
+    q.includes("business day") ||
+    q.includes("business days") ||
+    q.includes("weekend") ||
+    q.includes("weekends") ||
+    q.includes("timing") ||
+    q.includes("processing time");
+
+  return hasTransferContext && hasTimingContext;
+}
+
+function getFallbackKnowledgeArticle(question) {
+  const q = (question || "").toLowerCase();
+
+  if (isTransferTimingQuestion(question)) {
+    return {
+      article_id: 999999,
+      article_code: "BT_022_TRANSFER_TIMING",
+      title: "How long does a balance transfer take?",
+      approved_answer:
+        "Balance transfers usually take 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline.",
+      short_answer:
+        "Balance transfers usually take 5 to 7 business days to complete, and weekends and bank holidays do not count toward that timeline.",
+      recommended_model: "gpt-5-mini",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  return null;
+}
+
 function classifyQuestionType(question) {
   const q = (question || "").toLowerCase();
 
@@ -146,6 +183,10 @@ function classifyQuestionType(question) {
     return "support_escalation";
   }
 
+  if (isTransferTimingQuestion(question)) {
+    return "transfer_timing";
+  }
+
   if (transferKeywords.some((word) => q.includes(word))) {
     return "transfer_strategy";
   }
@@ -185,6 +226,15 @@ function chooseModel(question, cardCount, knowledgeArticle) {
       modelFamily: "gpt-5-mini",
       questionType,
       reason: `Knowledge article ${knowledgeArticle.article_code} recommends GPT-5 mini.`
+    };
+  }
+
+  if (questionType === "transfer_timing") {
+    return {
+      model: fastDeployment,
+      modelFamily: "gpt-5-mini",
+      questionType,
+      reason: "Transfer timing and processing questions are simple knowledge-based requests routed to the fast model."
     };
   }
 
@@ -472,7 +522,11 @@ async function findKnowledgeArticle(pool, question) {
           a.article_code;
     `);
 
-  return result.recordset.length > 0 ? result.recordset[0] : null;
+  if (result.recordset.length > 0) {
+    return result.recordset[0];
+  }
+
+  return getFallbackKnowledgeArticle(cleanQuestion);
 }
 async function getMemberCoachContext(pool, simUserId) {
   if (!simUserId) {
