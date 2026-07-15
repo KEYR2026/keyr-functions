@@ -825,7 +825,7 @@ function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
   }
 
   if (proactiveDecision.promptType === "readiness_next_step") {
-    return `Hi ${firstName}, you are currently ${readinessStatus} for advancement. Your next focus area is strengthening ${nextFocusArea.toLowerCase()}. Keep maintaining on-time payments and low utilization to support your progress.`;
+    return `Hi ${firstName}, you are currently ${readinessStatus} for advancement. Your next focus area is strengthening your ${nextFocusArea.toLowerCase()}. Keep maintaining on-time payments and low utilization to support your progress.`;
   }
 
   if (proactiveDecision.promptType === "profile_improvement") {
