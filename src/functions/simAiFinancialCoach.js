@@ -739,15 +739,25 @@ function determineProactivePrompt(memberCoachContext) {
   const nextFocusArea =
     memberCoachContext.next_focus_area || "";
 
-  if (daysUntilDue <= 7 && !autopayEnabled) {
-    return {
-      shouldProactivelyPrompt: true,
-      promptType: "payment_due_action",
-      promptSeverity: "high",
-      reason:
-        "Payment due date is approaching and autopay is not enabled."
-    };
-  }
+  if (daysUntilDue < 0 && !autopayEnabled) {
+  return {
+    shouldProactivelyPrompt: true,
+    promptType: "past_due_action",
+    promptSeverity: "high",
+    reason:
+      "Payment due date has passed and autopay is not enabled."
+  };
+}
+
+if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
+  return {
+    shouldProactivelyPrompt: true,
+    promptType: "payment_due_action",
+    promptSeverity: "high",
+    reason:
+      "Payment due date is approaching and autopay is not enabled."
+  };
+}
 
   if (recommendedPayment > 0 && daysUntilStatementClose >= 0) {
     return {
@@ -816,6 +826,10 @@ function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
     return `Hi ${firstName}, your statement closes soon. A payment of $${recommendedPayment.toFixed(
       2
     )} before statement close may help keep your projected balance closer to your target. Your next focus area is strengthening ${nextFocusArea.toLowerCase()}.`;
+  }
+
+  if (proactiveDecision.promptType === "past_due_action") {
+    return `Hi ${firstName}, your payment due date has passed and autopay is not enabled. Making a payment as soon as possible may help you stay current and protect your payment history.`;
   }
 
   if (proactiveDecision.promptType === "payment_due_action") {
