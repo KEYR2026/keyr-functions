@@ -135,6 +135,17 @@ function isNextStepQuestion(question) {
 function classifyQuestionType(question) {
   const q = (question || "").toLowerCase();
 
+  if (
+    q.includes("why did my progress status change") ||
+    q.includes("what caused my profile status to change") ||
+    q.includes("why did my status change") ||
+    q.includes("am i still making progress") ||
+    q.includes("how am i doing") ||
+    q.includes("what should i focus on next")
+  ) {
+    return "next_step";
+  }
+
   const supportKeywords = [
     "fraud",
     "dispute",
@@ -903,7 +914,7 @@ function buildSuggestedQuestions(memberCoachContext, proactiveDecision) {
 
   if (proactiveDecision.promptType === "profile_changed") {
     questions.push(
-      "Why did my progress status change?",
+      "What caused my profile status to change?",
       "How can I strengthen my credit profile?",
       "Am I still making progress?"
     );
