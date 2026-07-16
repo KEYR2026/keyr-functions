@@ -2,6 +2,6 @@ POST https://keyr-dev-func-d3e5hbgxe4e2gcgk.centralus-01.azurewebsites.net/api/s
 Content-Type: application/json
 
 {
-  "email": "jamie.foundation@keyr-sim.test",
+  "email": "robin.duerisk@keyr-sim.test",
   "mode": "dashboard_check"
 }

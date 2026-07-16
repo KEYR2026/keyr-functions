@@ -744,11 +744,6 @@ function determineProactivePrompt(memberCoachContext) {
   const nextFocusArea =
     memberCoachContext.next_focus_area || "";
 
-  /*
-    Priority 1:
-    Payment is already past due and autopay is off.
-    This should always override readiness/progress messaging.
-  */
   if (daysUntilDue < 0 && !autopayEnabled) {
     return {
       shouldProactivelyPrompt: true,
@@ -759,10 +754,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 2:
-    Payment due soon and autopay is off.
-  */
   if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
     return {
       shouldProactivelyPrompt: true,
@@ -773,11 +764,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 3:
-    Gotcha scenario: strong KEYR behavior may exist,
-    but broader credit profile changed recently.
-  */
   if (readinessStatus === "profile_changed") {
     return {
       shouldProactivelyPrompt: true,
@@ -788,11 +774,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 4:
-    Gotcha scenario: credit profile may be improving,
-    but KEYR payment behavior still needs attention.
-  */
   if (readinessStatus === "payment_behavior_needed") {
     return {
       shouldProactivelyPrompt: true,
@@ -803,11 +784,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 5:
-    Statement close action only applies if statement close
-    is today or in the future. Negative days means it already passed.
-  */
   if (recommendedPayment > 0 && daysUntilStatementClose >= 0) {
     return {
       shouldProactivelyPrompt: true,
@@ -818,10 +794,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 6:
-    Progressing or building progress should prompt lightly.
-  */
   if (
     (readinessStatus === "progressing" ||
       readinessStatus === "building_progress") &&
@@ -836,11 +808,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 7:
-    Strong progress should not interrupt the member.
-    AI Coach remains available, but no proactive popup.
-  */
   if (readinessStatus === "strong_progress") {
     return {
       shouldProactivelyPrompt: false,
@@ -851,10 +818,6 @@ function determineProactivePrompt(memberCoachContext) {
     };
   }
 
-  /*
-    Priority 8:
-    General improvement opportunity.
-  */
   if (
     memberCoachContext.utilization_status === "below" ||
     memberCoachContext.credit_score_status === "below" ||
@@ -877,27 +840,6 @@ function determineProactivePrompt(memberCoachContext) {
       "Member appears on track with no immediate proactive action required."
   };
 }
-
-  if (
-    memberCoachContext.utilization_status === "below" ||
-    memberCoachContext.credit_score_status === "below"
-  ) {
-    return {
-      shouldProactivelyPrompt: true,
-      promptType: "profile_improvement",
-      promptSeverity: "medium",
-      reason:
-        "Member has a profile improvement opportunity."
-    };
-  }
-
-  return {
-    shouldProactivelyPrompt: false,
-    promptType: "on_track",
-    promptSeverity: "none",
-    reason:
-      "Member appears on track with no immediate proactive action required."
-  };
 
 function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
   const firstName = memberCoachContext?.first_name || "Member";
