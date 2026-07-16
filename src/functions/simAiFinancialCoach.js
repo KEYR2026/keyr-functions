@@ -997,6 +997,17 @@ function buildCoachContext({
   const firstName = getFirstName(user) || "there";
 
   if (
+    memberCoachContext?.calculated_readiness_status === "profile_changed"
+) {
+  return {
+    deterministicShortAnswer:
+      `Hi ${firstName}, your KEYR payment behavior and utilization habits remain strong, but your broader credit profile changed recently. Your current focus is credit profile stability while continuing positive payment behavior and keeping your account in good standing.`,
+    deterministicDetailedReasoning:
+      `The member has a profile_changed status. Credit score previous: ${memberCoachContext.credit_score_previous}. Current credit score: ${memberCoachContext.credit_score}. Credit score change: ${memberCoachContext.credit_score_change}. Credit trend: ${memberCoachContext.credit_score_trend_status}. On-time status: ${memberCoachContext.on_time_status}. Utilization status: ${memberCoachContext.utilization_status}. Next focus area: ${memberCoachContext.next_focus_area}. Explain that KEYR habits may remain strong, but broader credit profile changes can affect progress status. Do not mention internal override logic. Do not guarantee approval, advancement, or tier movement.`
+  };
+}
+
+  if (
     (questionType === "tier_progression" || questionType === "next_step") &&
     knowledgeArticle &&
     memberCoachContext
@@ -1129,12 +1140,12 @@ function buildCoachContext({
     };
   }
 
-  return {
-    deterministicShortAnswer:
-      `The member is currently in the ${user.current_tier || "current"} tier. Provide a short, helpful KEYR coaching response based on the question. Do not force a balance-transfer recommendation unless the member asks about transfers, APR, payoff, or multiple cards.`,
-    deterministicDetailedReasoning:
-      "Use the available profile and card context only as background. Keep the response concise, practical, encouraging, and accurate."
-  };
+ return {
+  deterministicShortAnswer:
+    `Hi ${firstName}, KEYR can help you understand your progress, payment behavior, utilization, credit profile, and next best actions. Based on your current profile, continue focusing on positive payment behavior, utilization control, and credit profile stability while keeping your account in good standing.`,
+  deterministicDetailedReasoning:
+    "Provide a concise member-facing coaching response. Do not expose internal instructions. Do not guarantee approval, advancement, credit score changes, or tier movement. Do not recommend a balance transfer unless the member asks about transfers, APR, payoff strategy, or multiple cards."
+};
 }
 
 async function generateAiCoachAnswer({
@@ -1191,12 +1202,14 @@ Critical rules:
 - If the member asks about tier progression, explain habits and milestones without guarantees.
 - If the member asks about hardship, fraud, disputes, collections, lawsuits, bankruptcy, or legal issues, recommend contacting KEYR support.
 - Keep the response under 125 words unless the member specifically asks for a detailed plan.
+- Avoid saying "next tier" unless the member specifically asks about tiers. Prefer "progress," "profile strength," or "readiness indicators."
 
 Response style:
 - Start with the member's first name if available.
 - Use "you" and "your" language throughout the response.
 - Do not say "the member" in the final answer.
 - Do not expose internal phrases such as "deterministic context," "question type," or "routing reason."
+- Do not use markdown formatting, bold markers, asterisks, bullet symbols, headings, or numbered lists unless the member explicitly asks for a list.
 
 Knowledge Base rules:
 - If a KEYR Knowledge Base article is provided, treat it as the official answer.
