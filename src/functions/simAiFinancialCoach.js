@@ -679,6 +679,11 @@ async function getMemberCoachContext(pool, simUserId) {
           r.ascend_min_score,
           r.apex_min_score,
           r.credit_score_status,
+          r.credit_score_previous,
+          r.credit_score_change,
+          r.credit_score_trend_status,
+          r.readiness_override_status,
+          r.readiness_override_reason,
           r.readiness_indicator_count,
           r.calculated_readiness_status,
           r.next_focus_area,
@@ -739,26 +744,70 @@ function determineProactivePrompt(memberCoachContext) {
   const nextFocusArea =
     memberCoachContext.next_focus_area || "";
 
+  /*
+    Priority 1:
+    Payment is already past due and autopay is off.
+    This should always override readiness/progress messaging.
+  */
   if (daysUntilDue < 0 && !autopayEnabled) {
-  return {
-    shouldProactivelyPrompt: true,
-    promptType: "past_due_action",
-    promptSeverity: "high",
-    reason:
-      "Payment due date has passed and autopay is not enabled."
-  };
-}
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "past_due_action",
+      promptSeverity: "high",
+      reason:
+        "Payment due date has passed and autopay is not enabled."
+    };
+  }
 
-if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
-  return {
-    shouldProactivelyPrompt: true,
-    promptType: "payment_due_action",
-    promptSeverity: "high",
-    reason:
-      "Payment due date is approaching and autopay is not enabled."
-  };
-}
+  /*
+    Priority 2:
+    Payment due soon and autopay is off.
+  */
+  if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "payment_due_action",
+      promptSeverity: "high",
+      reason:
+        "Payment due date is approaching and autopay is not enabled."
+    };
+  }
 
+  /*
+    Priority 3:
+    Gotcha scenario: strong KEYR behavior may exist,
+    but broader credit profile changed recently.
+  */
+  if (readinessStatus === "profile_changed") {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "profile_changed",
+      promptSeverity: "medium",
+      reason:
+        "Broader credit profile changed recently and progress should be reviewed with caution."
+    };
+  }
+
+  /*
+    Priority 4:
+    Gotcha scenario: credit profile may be improving,
+    but KEYR payment behavior still needs attention.
+  */
+  if (readinessStatus === "payment_behavior_needed") {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "payment_behavior_needed",
+      promptSeverity: "medium",
+      reason:
+        "Credit profile is showing progress, but on-time payment behavior remains the next priority."
+    };
+  }
+
+  /*
+    Priority 5:
+    Statement close action only applies if statement close
+    is today or in the future. Negative days means it already passed.
+  */
   if (recommendedPayment > 0 && daysUntilStatementClose >= 0) {
     return {
       shouldProactivelyPrompt: true,
@@ -769,18 +818,65 @@ if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
     };
   }
 
+  /*
+    Priority 6:
+    Progressing or building progress should prompt lightly.
+  */
   if (
-    readinessStatus === "nearly_ready" &&
+    (readinessStatus === "progressing" ||
+      readinessStatus === "building_progress") &&
     nextFocusArea
   ) {
     return {
       shouldProactivelyPrompt: true,
-      promptType: "readiness_next_step",
+      promptType: "progress_next_step",
       promptSeverity: "low",
       reason:
-        "Member is nearly ready and has a clear next focus area."
+        "Member is building progress and has a clear next focus area."
     };
   }
+
+  /*
+    Priority 7:
+    Strong progress should not interrupt the member.
+    AI Coach remains available, but no proactive popup.
+  */
+  if (readinessStatus === "strong_progress") {
+    return {
+      shouldProactivelyPrompt: false,
+      promptType: "strong_progress",
+      promptSeverity: "none",
+      reason:
+        "Member is showing strong progress with no immediate proactive action required."
+    };
+  }
+
+  /*
+    Priority 8:
+    General improvement opportunity.
+  */
+  if (
+    memberCoachContext.utilization_status === "below" ||
+    memberCoachContext.credit_score_status === "below" ||
+    memberCoachContext.on_time_status === "below"
+  ) {
+    return {
+      shouldProactivelyPrompt: true,
+      promptType: "profile_improvement",
+      promptSeverity: "medium",
+      reason:
+        "Member has a profile improvement opportunity."
+    };
+  }
+
+  return {
+    shouldProactivelyPrompt: false,
+    promptType: "on_track",
+    promptSeverity: "none",
+    reason:
+      "Member appears on track with no immediate proactive action required."
+  };
+}
 
   if (
     memberCoachContext.utilization_status === "below" ||
@@ -802,7 +898,6 @@ if (daysUntilDue >= 0 && daysUntilDue <= 7 && !autopayEnabled) {
     reason:
       "Member appears on track with no immediate proactive action required."
   };
-}
 
 function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
   const firstName = memberCoachContext?.first_name || "Member";
@@ -818,16 +913,6 @@ function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
   const nextFocusArea =
     memberCoachContext?.next_focus_area || "your financial profile";
 
-  const readinessStatus =
-    (memberCoachContext?.calculated_readiness_status || "")
-      .replaceAll("_", " ");
-
-  if (proactiveDecision.promptType === "statement_close_action") {
-    return `Hi ${firstName}, your statement closes soon. A payment of $${recommendedPayment.toFixed(
-      2
-    )} before statement close may help keep your projected balance closer to your target. Your next focus area is strengthening ${nextFocusArea.toLowerCase()}.`;
-  }
-
   if (proactiveDecision.promptType === "past_due_action") {
     return `Hi ${firstName}, your payment due date has passed and autopay is not enabled. Making a payment as soon as possible may help you stay current and protect your payment history.`;
   }
@@ -838,44 +923,98 @@ function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
     }. Scheduling a payment can help protect your on-time payment history.`;
   }
 
-  if (proactiveDecision.promptType === "readiness_next_step") {
-    return `Hi ${firstName}, you are currently ${readinessStatus} for advancement. Your next focus area is strengthening your ${nextFocusArea.toLowerCase()}. Keep maintaining on-time payments and low utilization to support your progress.`;
+  if (proactiveDecision.promptType === "profile_changed") {
+    return `Hi ${firstName}, your KEYR habits may remain strong, but your broader credit profile changed recently. Focus on credit profile stability while continuing positive payment behavior and keeping your account in good standing.`;
+  }
+
+  if (proactiveDecision.promptType === "payment_behavior_needed") {
+    return `Hi ${firstName}, your credit profile is showing positive progress, but on-time payment behavior remains your next priority. Staying current can help strengthen your overall progress.`;
+  }
+
+  if (proactiveDecision.promptType === "statement_close_action") {
+    return `Hi ${firstName}, your statement closes soon. A payment of $${recommendedPayment.toFixed(
+      2
+    )} before statement close may help keep your projected balance closer to your target. Your next focus area is strengthening your ${nextFocusArea.toLowerCase()}.`;
+  }
+
+  if (proactiveDecision.promptType === "progress_next_step") {
+    return `Hi ${firstName}, you are progressing in key areas. Your next focus area is strengthening your ${nextFocusArea.toLowerCase()}. Keep building positive payment behavior, utilization control, and credit profile stability.`;
   }
 
   if (proactiveDecision.promptType === "profile_improvement") {
     return `Hi ${firstName}, KEYR sees an opportunity to strengthen your profile. Your next focus area is ${nextFocusArea.toLowerCase()}, and consistent payments plus lower balances may help support your progress over time.`;
   }
 
-  return `Hi ${firstName}, you appear to be on track today. You can open your KEYR AI Coach anytime to ask about readiness, utilization, payments, or debt strategy.`;
+  if (proactiveDecision.promptType === "strong_progress") {
+    return `Hi ${firstName}, your payment behavior, utilization, and credit profile are currently showing strong progress. Continue maintaining positive habits while your account remains in good standing.`;
+  }
+
+  if (proactiveDecision.promptType === "on_track") {
+    return `Hi ${firstName}, your payment behavior, utilization, and credit profile are currently showing strong progress. Continue maintaining positive habits while your account remains in good standing.`;
+  }
+
+  return `Hi ${firstName}, your KEYR AI Coach is available anytime to help you understand your progress, utilization, payments, or debt strategy.`;
 }
 
 function buildSuggestedQuestions(memberCoachContext, proactiveDecision) {
   const questions = [];
 
-  if (proactiveDecision.promptType === "statement_close_action") {
+  if (proactiveDecision.promptType === "profile_changed") {
+    questions.push(
+      "Why did my progress status change?",
+      "How can I strengthen my credit profile?",
+      "Am I still making progress?"
+    );
+
+  } else if (proactiveDecision.promptType === "payment_behavior_needed") {
+    questions.push(
+      "Why is payment behavior my next priority?",
+      "How do on-time payments affect my progress?",
+      "What should I do next?"
+    );
+
+  } else if (proactiveDecision.promptType === "statement_close_action") {
     questions.push(
       "Why is KEYR recommending a payment before statement close?",
       "How does this affect my utilization?",
-      "Am I still on track for Ascend?"
+      "Am I still making progress?"
     );
+
   } else if (proactiveDecision.promptType === "payment_due_action") {
     questions.push(
       "What happens if I miss a payment?",
       "Should I turn on autopay?",
-      "How do payments affect my readiness?"
+      "How do payments affect my progress?"
     );
-  } else if (proactiveDecision.promptType === "readiness_next_step") {
+
+  } else if (proactiveDecision.promptType === "past_due_action") {
     questions.push(
-      "Am I ready for Ascend?",
-      "What should I do next?",
-      "What is holding me back?"
+      "What should I do if my payment is past due?",
+      "How do late payments affect my progress?",
+      "Should I turn on autopay?"
     );
+
+  } else if (proactiveDecision.promptType === "progress_next_step") {
+    questions.push(
+      "How am I doing?",
+      "What should I focus on next?",
+      "How do I strengthen my progress?"
+    );
+
+  } else if (proactiveDecision.promptType === "strong_progress") {
+    questions.push(
+      "How am I doing?",
+      "How do I maintain strong progress?",
+      "What should I watch next?"
+    );
+
   } else if (proactiveDecision.promptType === "profile_improvement") {
     questions.push(
       "What is hurting my profile the most?",
       "How do I improve my profile?",
-      "How do I move closer to Ascend?"
+      "How do I strengthen my progress?"
     );
+
   } else {
     questions.push(
       "How am I doing?",
