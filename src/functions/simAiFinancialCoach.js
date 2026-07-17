@@ -1604,16 +1604,16 @@ if (requiresDebtScenario && !scenario) {
 const plan = scenario
   ? buildTransferPlan(externalCards, scenario)
   : {
-      recommendedStrategy: null,
-      recommendedCardLabel: null,
+      recommendedStrategy: "general_progress_coaching",
+      recommendedCardLabel: "Not applicable",
       recommendedTransferAmount: 0,
       totalTransferred: 0,
       transferFee: 0,
       allocations: [],
       shortAnswer:
-        "No balance transfer scenario is available for this simulated profile.",
+        "This question does not require a balance transfer scenario. KEYR can still provide guidance using payment behavior, utilization, credit profile stability, and Progress Status.",
       detailedReasoning:
-        "No balance transfer scenario was available for analysis."
+        "No balance transfer scenario was available or required. The question was handled as general AI financial coaching."
     };
 
 const coachContext = buildCoachContext({
@@ -1664,9 +1664,9 @@ await insertRequest
   .input("sim_bt_scenario_id", sql.UniqueIdentifier, scenario?.sim_bt_scenario_id || null)
   .input("user_question", sql.NVarChar(sql.MAX), question || null)
   .input("scenario_type", sql.NVarChar(100), routing.questionType || "ai_coach")
-  .input("recommended_strategy", sql.NVarChar(100), plan.recommendedStrategy)
-  .input("recommended_card_label", sql.NVarChar(100), plan.recommendedCardLabel)
-  .input("recommended_transfer_amount", sql.Decimal(18, 2), plan.recommendedTransferAmount)
+  .input("recommended_strategy",sql.NVarChar(100),plan.recommendedStrategy || "general_progress_coaching")
+  .input("recommended_card_label",sql.NVarChar(100),plan.recommendedCardLabel || "Not applicable")
+  .input("recommended_transfer_amount",sql.Decimal(18, 2),plan.recommendedTransferAmount || 0)
   .input("model_selected", sql.NVarChar(100), routing.model)
   .input("routing_reason", sql.NVarChar(500), routing.reason)
   .input("short_answer", sql.NVarChar(sql.MAX), finalShortAnswer)
