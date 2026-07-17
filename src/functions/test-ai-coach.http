@@ -2,6 +2,7 @@ POST https://keyr-dev-func-d3e5hbgxe4e2gcgk.centralus-01.azurewebsites.net/api/s
 Content-Type: application/json
 
 {
-  "email": "robin.duerisk@keyr-sim.test",
-  "mode": "dashboard_check"
+  "email": "jamie.foundation@keyr-sim.test",
+  "mode": "ask",
+  "question": "How do payments affect my progress?"
 }
