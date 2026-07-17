@@ -132,7 +132,7 @@ function isNextStepQuestion(question) {
   );
 }
 
-function classifyQuestionType(question) {
+  function classifyQuestionType(question) {
   const q = (question || "").toLowerCase();
 
   if (
@@ -147,7 +147,13 @@ function classifyQuestionType(question) {
     q.includes("why is payment behavior my next priority") ||
     q.includes("payment behavior") ||
     q.includes("on-time payment") ||
-    q.includes("on-time payments")
+    q.includes("on-time payments") ||
+    q.includes("autopay") ||
+    q.includes("auto pay") ||
+    q.includes("automatic payment") ||
+    q.includes("should i turn it on") ||
+    q.includes("should i turn on") ||
+    q.includes("turn it on")
   ) {
     return "next_step";
   }
@@ -1136,6 +1142,7 @@ function buildSuggestedQuestions(memberCoachContext, proactiveDecision) {
 }
 
 function buildCoachContext({
+  question,
   questionType,
   user,
   externalCards,
@@ -1146,6 +1153,45 @@ function buildCoachContext({
 }) {
   const utilization = calculateExternalUtilization(externalCards || []);
   const firstName = getFirstName(user) || "there";
+  const q = (question || "").toLowerCase();
+
+if (
+  q.includes("autopay") ||
+  q.includes("auto pay") ||
+  q.includes("automatic payment") ||
+  q.includes("should i turn it on") ||
+  q.includes("turn it on")
+) {
+  const autopayEnabled =
+    memberCoachContext?.autopay_enabled === true ||
+    memberCoachContext?.autopay_enabled === 1;
+
+  const daysUntilDue = Number(
+    memberCoachContext?.days_until_due_date ?? 999
+  );
+
+  const onTimeStatus =
+    memberCoachContext?.on_time_status || "unknown";
+
+  const nextFocusArea =
+    memberCoachContext?.next_focus_area || "payment behavior";
+
+  if (!autopayEnabled) {
+    return {
+      deterministicShortAnswer:
+        `Hi ${firstName}, turning on autopay can help reduce the chance of missing a payment, especially since your next focus area is ${nextFocusArea.toLowerCase()}. Since your due date is approaching in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}, scheduling a payment or enabling autopay can help keep your account current. Before turning it on, make sure the funding account has enough money available.`,
+      deterministicDetailedReasoning:
+        `The member asked about autopay. Autopay is currently off. Days until due date: ${daysUntilDue}. On-time status: ${onTimeStatus}. Next focus area: ${nextFocusArea}. Explain that autopay may help support on-time payment behavior, but do not guarantee approval, advancement, credit score changes, or tier movement.`
+    };
+  }
+
+  return {
+    deterministicShortAnswer:
+      `Hi ${firstName}, autopay is already enabled. That can help support consistent payment behavior by reducing the chance of missing a due date. Continue monitoring your balance and funding account so payments can process successfully while your account remains in good standing.`,
+    deterministicDetailedReasoning:
+      `The member asked about autopay. Autopay is already enabled. Keep the answer concise, educational, and bank-safe. Do not guarantee approval, advancement, credit score changes, or tier movement.`
+  };
+}
 
   if (
     memberCoachContext?.calculated_readiness_status === "profile_changed"
@@ -1808,6 +1854,7 @@ const plan = scenario
     };
 
 const coachContext = buildCoachContext({
+  question,
   questionType: routing.questionType,
   user,
   externalCards,
