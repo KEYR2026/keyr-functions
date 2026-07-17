@@ -1499,25 +1499,189 @@ app.http("simAiFinancialCoach", {
           ORDER BY created_at_utc DESC;
         `);
 
-      if (cardsResult.recordset.length === 0) {
-        return {
-          status: 404,
-          headers: corsHeaders,
-          jsonBody: {
-            error: "No external credit cards found for this simulated user."
-          }
-        };
+if (requiresDebtScenario && externalCards.length === 0) {
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: routing.model,
+        modelFamily: routing.modelFamily,
+        questionType: routing.questionType,
+        reason: routing.reason,
+        aiWasUsed: false,
+        aiError: "No external card data available for this simulated member."
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: null,
+        recommendedCardLabel: null,
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have external card details available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        shortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have external card details available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        detailedReasoning:
+          "External card data was not available for this simulated member, so card-specific debt strategy was not generated."
       }
+    }
+  };
+}
 
-      if (scenarioResult.recordset.length === 0) {
-        return {
-          status: 404,
-          headers: corsHeaders,
-          jsonBody: {
-            error: "No balance transfer scenario found for this simulated user."
-          }
-        };
+if (requiresDebtScenario && !scenario) {
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: routing.model,
+        modelFamily: routing.modelFamily,
+        questionType: routing.questionType,
+        reason: routing.reason,
+        aiWasUsed: false,
+        aiError: "No balance transfer scenario available for this simulated member."
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: null,
+        recommendedCardLabel: null,
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have a balance transfer scenario available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        shortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have a balance transfer scenario available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        detailedReasoning:
+          "Balance transfer scenario data was not available for this simulated member, so transfer strategy was not generated."
       }
+    }
+  };
+}
+
+const plan = scenario
+  ? buildTransferPlan(externalCards, scenario)
+  : {
+      recommendedStrategy: null,
+      recommendedCardLabel: null,
+      recommendedTransferAmount: 0,
+      totalTransferred: 0,
+      transferFee: 0,
+      allocations: [],
+      shortAnswer:
+        "No balance transfer scenario is available for this simulated profile.",
+      detailedReasoning:
+        "No balance transfer scenario was available for analysis."
+    };
+
+const requiresDebtScenario =
+  routing.questionType === "transfer_strategy" ||
+  routing.questionType === "payoff_strategy" ||
+  routing.questionType === "transfer_timing";
+
+if (requiresDebtScenario && externalCards.length === 0) {
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: routing.model,
+        modelFamily: routing.modelFamily,
+        questionType: routing.questionType,
+        reason: routing.reason,
+        aiWasUsed: false,
+        aiError: "No external card data available for this simulated member."
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: null,
+        recommendedCardLabel: null,
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have external card details available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        shortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have external card details available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        detailedReasoning:
+          "External card data was not available for this simulated member, so debt transfer strategy was not generated."
+      }
+    }
+  };
+}
+
+if (requiresDebtScenario && !scenario) {
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: routing.model,
+        modelFamily: routing.modelFamily,
+        questionType: routing.questionType,
+        reason: routing.reason,
+        aiWasUsed: false,
+        aiError: "No balance transfer scenario available for this simulated member."
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: null,
+        recommendedCardLabel: null,
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have a balance transfer scenario available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        shortAnswer:
+          `Hi ${user.first_name || "there"}, I do not currently have a balance transfer scenario available for this simulated profile. I can still help you understand payment behavior, utilization, credit profile stability, and your Progress Status.`,
+        detailedReasoning:
+          "Balance transfer scenario data was not available for this simulated member, so debt transfer strategy was not generated."
+      }
+    }
+  };
+}
 
       const externalCards = cardsResult.recordset;
       const scenario = scenarioResult.recordset[0];
@@ -1528,18 +1692,6 @@ app.http("simAiFinancialCoach", {
         externalCards.length,
         knowledgeArticle
       );
-
-      const plan = buildTransferPlan(externalCards, scenario);
-
-      const coachContext = buildCoachContext({
-        questionType: routing.questionType,
-        user,
-        externalCards,
-        scenario,
-        plan,
-        knowledgeArticle,
-        memberCoachContext
-      });
 
       const deterministicShortAnswer =
         coachContext.deterministicShortAnswer;
@@ -1576,7 +1728,7 @@ app.http("simAiFinancialCoach", {
 
       await insertRequest
         .input("sim_user_id", sql.UniqueIdentifier, user.sim_user_id)
-        .input("sim_bt_scenario_id", sql.UniqueIdentifier, scenario.sim_bt_scenario_id)
+        .input("sim_bt_scenario_id", sql.UniqueIdentifier, scenario?.sim_bt_scenario_id || null)
         .input("user_question", sql.NVarChar(sql.MAX), question || null)
         .input("scenario_type", sql.NVarChar(100), routing.questionType || "ai_coach")
         .input("recommended_strategy", sql.NVarChar(100), plan.recommendedStrategy)
@@ -1601,7 +1753,7 @@ app.http("simAiFinancialCoach", {
             currentTier: user.current_tier
           },
           scenario: {
-            scenarioName: scenario.scenario_name,
+            scenarioName: scenario?.scenario_name,
             keyrTier: scenario.keyr_tier,
             transferLimit: Number(scenario.transfer_limit),
             transferFeePercent: Number(scenario.transfer_fee_percent),
