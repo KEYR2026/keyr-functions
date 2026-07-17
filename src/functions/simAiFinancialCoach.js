@@ -141,7 +141,13 @@ function classifyQuestionType(question) {
     q.includes("why did my status change") ||
     q.includes("am i still making progress") ||
     q.includes("how am i doing") ||
-    q.includes("what should i focus on next")
+    q.includes("what should i focus on next") ||
+    q.includes("how do payments affect my progress") ||
+    q.includes("how do on-time payments affect my progress") ||
+    q.includes("why is payment behavior my next priority") ||
+    q.includes("payment behavior") ||
+    q.includes("on-time payment") ||
+    q.includes("on-time payments")
   ) {
     return "next_step";
   }
