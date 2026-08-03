@@ -486,15 +486,54 @@ function getFallbackKnowledgeArticle(question) {
       article_code: "BT_022_TRANSFER_TIMING",
       title: "How long does a balance transfer take?",
       approved_answer:
-        "Balance transfers usually take 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline.",
+        "Balance transfers are only available for KEYR's unsecured tiers, Ascend and Apex, subject to approval, available credit, sponsor-bank rules, program terms, and transfer availability. When available, a balance transfer usually takes 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline. Continue making required payments on the original account until the transfer is confirmed as completed.",
       short_answer:
-        "Balance transfers usually take 5 to 7 business days to complete, and weekends and bank holidays do not count toward that timeline.",
+        "Balance transfers are only available for Ascend and Apex, subject to approval and program terms. When available, a balance transfer usually takes 5 to 7 business days, and weekends and bank holidays do not count. Continue paying the original account until the transfer is confirmed.",
       recommended_model: "gpt-5-mini",
       escalation_required: false,
       human_review_required: false,
       best_match_weight: 100
     };
   }
+
+  return null;
+}
+
+function getFallbackKnowledgeArticle(question) {
+  if (isSecuredTierBalanceTransferQuestion(question)) {
+    return {
+      article_id: null,
+      article_code: "BT_010_SECURED_TIERS_NO_TRANSFER",
+      title: "Can secured tiers support balance transfers?",
+      approved_answer:
+        "No. Anchor Base, Anchor, and Merit do not support balance transfers. Anchor Base is a no-borrowing credit-building path, while Anchor and Merit are secured credit-building tiers. Balance transfers are only available for KEYR's unsecured tiers, Ascend and Apex, subject to approval, available credit, sponsor-bank rules, program terms, and transfer availability.",
+      short_answer:
+        "No. Anchor Base, Anchor, and Merit do not support balance transfers. Balance transfers are only available for unsecured tiers, Ascend and Apex, subject to approval and program terms.",
+      recommended_model: "gpt-5-mini",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  if (isTransferTimingQuestion(question)) {
+    return {
+      article_id: null,
+      article_code: "BT_022_TRANSFER_TIMING",
+      title: "How long does a balance transfer take?",
+      approved_answer:
+        "Balance transfers are only available for KEYR's unsecured tiers, Ascend and Apex, subject to approval, available credit, sponsor-bank rules, program terms, and transfer availability. When available, a balance transfer usually takes 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline. Continue making required payments on the original account until the transfer is confirmed as completed.",
+      short_answer:
+        "Balance transfers are only available for Ascend and Apex, subject to approval and program terms. When available, a balance transfer usually takes 5 to 7 business days, and weekends and bank holidays do not count. Continue paying the original account until the transfer is confirmed.",
+      recommended_model: "gpt-5-mini",
+      escalation_required: false,
+      human_review_required: false,
+      best_match_weight: 100
+    };
+  }
+
+  return null;
+}
 
   if (isNextStepQuestion(question)) {
     return {
@@ -529,7 +568,6 @@ function getFallbackKnowledgeArticle(question) {
   }
 
   return null;
-}
 
 async function findKnowledgeArticle(pool, question) {
   const cleanQuestion = (question || "").trim();
@@ -1536,11 +1574,14 @@ function getDeterministicButtonResponse(questionType, question, user) {
 
   const isSecuredTierTransfer =
     normalizedType.includes("secured_tier_transfer") ||
-    normalizedQuestion.includes("can merit do a balance transfer") ||
-    normalizedQuestion.includes("can anchor do a balance transfer") ||
-    normalizedQuestion.includes("can secured") ||
-    normalizedQuestion.includes("does merit support balance transfers") ||
-    normalizedQuestion.includes("does anchor support balance transfers");
+  (
+    normalizedQuestion.includes("balance transfer") && (
+    normalizedQuestion.includes("merit") ||
+    normalizedQuestion.includes("anchor") ||
+    normalizedQuestion.includes("secured") ||
+    normalizedQuestion.includes("anchor base")
+    )
+  );
 
   const isAscendReadiness =
     normalizedType.includes("ascend_readiness") ||
@@ -1577,6 +1618,20 @@ function getDeterministicButtonResponse(questionType, question, user) {
   }
 
   return null;
+}
+
+function isSecuredTierBalanceTransferQuestion(question) {
+  const q = (question || "").toLowerCase();
+
+  return (
+    q.includes("balance transfer") &&
+    (
+      q.includes("merit") ||
+      q.includes("anchor") ||
+      q.includes("secured") ||
+      q.includes("anchor base")
+    )
+  );
 }
 
 function sanitizeCoachResponse(text) {
