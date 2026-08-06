@@ -508,7 +508,7 @@ function getFallbackKnowledgeArticle(question) {
       approved_answer:
         "No. Anchor Base, Anchor, and Merit do not support balance transfers. Anchor Base is a no-borrowing credit-building path, while Anchor and Merit are secured credit-building tiers. Balance transfers are only available for KEYR's unsecured tiers, Ascend and Apex, subject to approval, available credit, sponsor-bank rules, program terms, and transfer availability.",
       short_answer:
-        "No. Anchor Base, Anchor, and Merit do not support balance transfers. Balance transfers are only available for unsecured tiers, Ascend and Apex, subject to approval and program terms.",
+        "No. Anchor Base, Anchor, and Merit do not support balance transfers. Balance transfers are only available for Ascend and Apex, subject to approval and program terms.",
       recommended_model: "gpt-5-mini",
       escalation_required: false,
       human_review_required: false,
@@ -1946,10 +1946,52 @@ const routing = chooseModel(
   knowledgeArticle
 );
 
+const fallbackArticle =
+  knowledgeArticle || getFallbackKnowledgeArticle(question);
+
+if (
+  routing.questionType === "transfer_timing" &&
+  fallbackArticle?.short_answer
+) {
+  const formattedFallbackAnswer = ensureNameGreeting(
+    fallbackArticle.short_answer,
+    user?.first_name
+  );
+
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: routing.model,
+        modelFamily: routing.modelFamily,
+        questionType: routing.questionType,
+        reason: "Answered from KEYR fallback knowledge article.",
+        aiWasUsed: false,
+        aiError: null
+      },
+      knowledgeArticle: fallbackArticle,
+      memberCoachContext,
+      recommendation: {
+        shortAnswer: formattedFallbackAnswer,
+        deterministicShortAnswer: formattedFallbackAnswer,
+        detailedReasoning: fallbackArticle.approved_answer
+      }
+    }
+  };
+}
+
 const requiresDebtScenario =
   routing.questionType === "transfer_strategy" ||
-  routing.questionType === "payoff_strategy" ||
-  routing.questionType === "transfer_timing";
+  routing.questionType === "payoff_strategy";
 
 if (requiresDebtScenario && externalCards.length === 0) {
   return {
