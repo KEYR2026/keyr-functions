@@ -493,6 +493,40 @@ function isSecuredTierBalanceTransferQuestion(question) {
   );
 }
 
+function isBalanceTransferEligibilityQuestion(question) {
+  const q = (question || "").toLowerCase().trim();
+
+  const mentionsBalanceTransfer =
+    q.includes("balance transfer") ||
+    q.includes("balance tranfer") ||
+    q.includes("transfer a balance") ||
+    q.includes("transfer my balance");
+
+  const asksEligibility =
+    q.includes("can i") ||
+    q.includes("am i eligible") ||
+    q.includes("am i able") ||
+    q.includes("do i qualify") ||
+    q.includes("can my card") ||
+    q.includes("does my card") ||
+    q.includes("does my tier");
+
+  const asksForStrategy =
+    q.includes("which balance") ||
+    q.includes("which card") ||
+    q.includes("how much") ||
+    q.includes("how long") ||
+    q.includes("what amount") ||
+    q.includes("pay first") ||
+    q.includes("strategy");
+
+  return (
+    mentionsBalanceTransfer &&
+    asksEligibility &&
+    !asksForStrategy
+  );
+}
+
 function getFallbackKnowledgeArticle(question) {
   if (isTransferTimingQuestion(question)) {
     return {
@@ -1881,6 +1915,74 @@ if (isSecuredTierBalanceTransferQuestion(question)) {
         shortAnswer: securedTierBtAnswer,
         detailedReasoning:
           "Anchor Base, Anchor, and Merit do not support balance transfers."
+      }
+    }
+  };
+}
+
+if (isBalanceTransferEligibilityQuestion(question)) {
+  const currentTier = String(user.current_tier || "").trim();
+  const normalizedTier = currentTier.toLowerCase();
+
+  const isAscend =
+    normalizedTier.includes("ascend");
+
+  const isApex =
+    normalizedTier.includes("apex");
+
+  const isTransferEligibleTier =
+    isAscend || isApex;
+
+  let balanceTransferAnswer;
+  let detailedReasoning;
+
+  if (isTransferEligibleTier) {
+    balanceTransferAnswer =
+      `Hi ${user.first_name || "there"}, your current ${currentTier} tier may support balance transfers. Your transfer amount cannot exceed your approved available credit and remains subject to account status, sponsor-bank approval, transfer availability, fees, and program terms.`;
+
+    detailedReasoning =
+      `${currentTier} is an unsecured KEYR tier that may support balance transfers, subject to approval and available credit.`;
+  } else {
+    balanceTransferAnswer =
+      `Hi ${user.first_name || "there"}, your current ${currentTier} tier does not support balance transfers. Anchor Base, Anchor, and Merit are credit-building tiers. Balance transfers are only available with Ascend and Apex, subject to sponsor-bank approval, available credit, account status, fees, and program terms.`;
+
+    detailedReasoning =
+      `${currentTier} does not support balance transfers. Balance transfers are available only with Ascend and Apex.`;
+  }
+
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: "deterministic",
+        modelFamily: "deterministic",
+        questionType: "balance_transfer_eligibility",
+        reason:
+          "Answered from the member's current KEYR tier and balance-transfer eligibility rules.",
+        aiWasUsed: false,
+        aiError: null
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: "balance_transfer_eligibility",
+        recommendedCardLabel: "Not applicable",
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer: balanceTransferAnswer,
+        shortAnswer: balanceTransferAnswer,
+        detailedReasoning
       }
     }
   };
