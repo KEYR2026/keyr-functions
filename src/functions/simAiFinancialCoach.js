@@ -479,6 +479,20 @@ async function getKnowledgeArticleByCode(pool, articleCode, matchWeight = 100) {
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
+function isSecuredTierBalanceTransferQuestion(question) {
+  const q = (question || "").toLowerCase().trim();
+
+  return (
+    q.includes("balance transfer") &&
+    (
+      q.includes("merit") ||
+      q.includes("anchor") ||
+      q.includes("secured") ||
+      q.includes("anchor base")
+    )
+  );
+}
+
 function getFallbackKnowledgeArticle(question) {
   if (isTransferTimingQuestion(question)) {
     return {
@@ -532,9 +546,6 @@ function getFallbackKnowledgeArticle(question) {
     };
   }
 
-  return null;
-}
-
   if (isNextStepQuestion(question)) {
     return {
       article_id: null,
@@ -568,6 +579,7 @@ function getFallbackKnowledgeArticle(question) {
   }
 
   return null;
+}
 
 async function findKnowledgeArticle(pool, question) {
   const cleanQuestion = (question || "").trim();
@@ -1831,6 +1843,49 @@ app.http("simAiFinancialCoach", {
         user.sim_user_id
       );
 
+if (isSecuredTierBalanceTransferQuestion(question)) {
+  const securedTierBtAnswer =
+    `Hi ${user.first_name || "there"}, Anchor Base, Anchor, and Merit do not support balance transfers. Those tiers are focused on credit-building, responsible usage, and readiness. Balance transfers are only available for unsecured tiers such as Ascend and Apex, subject to sponsor-bank approval, available credit, program terms, and transfer availability.`;
+
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: "deterministic",
+        modelFamily: "deterministic",
+        questionType: "secured_tier_transfer",
+        reason: "Answered directly from KEYR secured-tier balance transfer rules.",
+        codeVersion: "2026-08-12-bt-fix-1",
+        aiWasUsed: false,
+        aiError: null
+      },
+      knowledgeArticle: null,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: "secured_tier_transfer_rule",
+        recommendedCardLabel: "Not applicable",
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer: securedTierBtAnswer,
+        shortAnswer: securedTierBtAnswer,
+        detailedReasoning:
+          "Anchor Base, Anchor, and Merit do not support balance transfers."
+      }
+    }
+  };
+}
+
       if (mode === "dashboard_check") {
         const proactiveDecision =
           determineProactivePrompt(memberCoachContext);
@@ -1945,6 +2000,53 @@ const routing = chooseModel(
   externalCards.length,
   knowledgeArticle
 );
+
+if (
+  knowledgeArticle?.article_code ===
+  "BT_010_SECURED_TIERS_NO_TRANSFER"
+) {
+  const answer = ensureNameGreeting(
+    knowledgeArticle.short_answer,
+    user?.first_name
+  );
+
+  return {
+    status: 200,
+    headers: corsHeaders,
+    jsonBody: {
+      success: true,
+      mode,
+      user: {
+        simUserId: user.sim_user_id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        currentTier: user.current_tier
+      },
+      routing: {
+        model: "deterministic",
+        modelFamily: "knowledge_base",
+        questionType: "secured_tier_transfer",
+        reason: "Answered directly from KEYR product rules.",
+        aiWasUsed: false,
+        aiError: null
+      },
+      knowledgeArticle,
+      memberCoachContext,
+      recommendation: {
+        recommendedStrategy: null,
+        recommendedCardLabel: null,
+        recommendedTransferAmount: 0,
+        totalTransferred: 0,
+        transferFee: 0,
+        allocations: [],
+        deterministicShortAnswer: answer,
+        shortAnswer: answer,
+        detailedReasoning:
+          knowledgeArticle.approved_answer
+      }
+    }
+  };
+}
 
 const fallbackArticle =
   knowledgeArticle || getFallbackKnowledgeArticle(question);
