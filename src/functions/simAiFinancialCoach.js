@@ -528,26 +528,6 @@ function isBalanceTransferEligibilityQuestion(question) {
 }
 
 function getFallbackKnowledgeArticle(question) {
-  if (isTransferTimingQuestion(question)) {
-    return {
-      article_id: null,
-      article_code: "BT_022_TRANSFER_TIMING",
-      title: "How long does a balance transfer take?",
-      approved_answer:
-        "Balance transfers are only available for KEYR's unsecured tiers, Ascend and Apex, subject to approval, available credit, sponsor-bank rules, program terms, and transfer availability. When available, a balance transfer usually takes 5 to 7 business days to complete. Weekends and bank holidays do not count toward that timeline. Continue making required payments on the original account until the transfer is confirmed as completed.",
-      short_answer:
-        "Balance transfers are only available for Ascend and Apex, subject to approval and program terms. When available, a balance transfer usually takes 5 to 7 business days, and weekends and bank holidays do not count. Continue paying the original account until the transfer is confirmed.",
-      recommended_model: "gpt-5-mini",
-      escalation_required: false,
-      human_review_required: false,
-      best_match_weight: 100
-    };
-  }
-
-  return null;
-}
-
-function getFallbackKnowledgeArticle(question) {
   if (isSecuredTierBalanceTransferQuestion(question)) {
     return {
       article_id: null,
@@ -817,6 +797,56 @@ async function getMemberCoachContext(pool, simUserId) {
     `);
 
   return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+async function getActiveCoachingAlerts(pool, simUserId) {
+  if (!simUserId) {
+    return [];
+  }
+
+  const result = await pool
+    .request()
+    .input(
+      "sim_user_id",
+      sql.UniqueIdentifier,
+      simUserId
+    )
+    .query(`
+      SELECT TOP (10)
+          sim_alert_id,
+          sim_user_id,
+          sim_account_id,
+          trigger_transaction_id,
+          alert_type,
+          alert_status,
+          severity,
+          title,
+          message,
+          recommended_amount,
+          target_utilization_percent,
+          projected_utilization_percent,
+          projected_statement_balance,
+          target_statement_balance,
+          statement_close_date,
+          recommended_payment_date,
+          action_label,
+          action_url,
+          conversation_id,
+          created_at_utc,
+          updated_at_utc
+      FROM dbo.SimAlerts
+      WHERE sim_user_id = @sim_user_id
+        AND alert_status IN (
+          'New',
+          'Delivered',
+          'Acknowledged'
+        )
+      ORDER BY
+          updated_at_utc DESC,
+          created_at_utc DESC;
+    `);
+
+  return result.recordset || [];
 }
 
 function isGuid(value) {
@@ -1153,12 +1183,19 @@ function buildDashboardPromptAnswer(memberCoachContext, proactiveDecision) {
 function buildSuggestedQuestions(memberCoachContext, proactiveDecision) {
   const questions = [];
 
-  if (proactiveDecision.promptType === "profile_changed") {
-    questions.push(
-      "What caused my profile status to change?",
-      "How can I strengthen my credit profile?",
-      "Am I still making progress?"
-    );
+  if (
+  proactiveDecision.promptType ===
+  "utilization_payment_recommendation"
+) {
+  questions.push(
+    "Why is KEYR recommending this payment?",
+    "What if I can pay only part of it?",
+    "How does this payment affect my utilization?",
+    "What payment gets me back to my target?"
+  );
+} else if (
+  proactiveDecision.promptType === "profile_changed"
+) {
 
   } else if (proactiveDecision.promptType === "payment_behavior_needed") {
     questions.push(
@@ -1233,11 +1270,69 @@ function buildCoachContext({
   scenario,
   plan,
   knowledgeArticle,
-  memberCoachContext
+  memberCoachContext,
+  activeCoachingAlerts
 }) {
   const utilization = calculateExternalUtilization(externalCards || []);
   const firstName = getFirstName(user) || "there";
   const q = (question || "").toLowerCase();
+
+const activeUtilizationAlert =
+  (activeCoachingAlerts || []).find(
+    (alert) =>
+      alert.alert_type ===
+      "utilization_payment_recommendation"
+  );
+
+const asksAboutUtilizationRecommendation =
+  questionType === "utilization_coaching" ||
+  q.includes("recommended payment") ||
+  q.includes("recommendation") ||
+  q.includes("statement close") ||
+  q.includes("statement closes") ||
+  q.includes("why do i need") ||
+  q.includes("why is keyr recommending") ||
+  q.includes("how am i doing") ||
+  q.includes("what should i do next");
+
+if (
+  activeUtilizationAlert &&
+  asksAboutUtilizationRecommendation
+) {
+  return {
+    deterministicShortAnswer:
+      activeUtilizationAlert.message,
+
+    deterministicDetailedReasoning: [
+      "Use the active KEYR utilization recommendation as the factual source.",
+      `Alert ID: ${activeUtilizationAlert.sim_alert_id}.`,
+      `Recommended payment: $${Number(
+        activeUtilizationAlert.recommended_amount || 0
+      ).toFixed(2)}.`,
+      `Projected utilization: ${Number(
+        activeUtilizationAlert.projected_utilization_percent || 0
+      ).toFixed(2)}%.`,
+      `Target utilization: ${Number(
+        activeUtilizationAlert.target_utilization_percent || 0
+      ).toFixed(2)}%.`,
+      `Projected statement balance: $${Number(
+        activeUtilizationAlert.projected_statement_balance || 0
+      ).toFixed(2)}.`,
+      `Target statement balance: $${Number(
+        activeUtilizationAlert.target_statement_balance || 0
+      ).toFixed(2)}.`,
+      `Statement close date: ${
+        activeUtilizationAlert.statement_close_date
+      }.`,
+      `Recommended payment date: ${
+        activeUtilizationAlert.recommended_payment_date
+      }.`,
+      "Do not recalculate, modify, approximate, or replace these values.",
+      "Explain the exact recommendation directly and concisely.",
+      "Do not describe this amount as the contractual minimum payment."
+    ].join(" ")
+  };
+}
 
 if (
   q.includes("autopay") ||
@@ -1666,20 +1761,6 @@ function getDeterministicButtonResponse(questionType, question, user) {
   return null;
 }
 
-function isSecuredTierBalanceTransferQuestion(question) {
-  const q = (question || "").toLowerCase();
-
-  return (
-    q.includes("balance transfer") &&
-    (
-      q.includes("merit") ||
-      q.includes("anchor") ||
-      q.includes("secured") ||
-      q.includes("anchor base")
-    )
-  );
-}
-
 function sanitizeCoachResponse(text) {
   if (!text) return "";
 
@@ -1872,10 +1953,20 @@ app.http("simAiFinancialCoach", {
 
       const user = userResult.recordset[0];
 
-      const memberCoachContext = await getMemberCoachContext(
-        pool,
-        user.sim_user_id
-      );
+const memberCoachContext = await getMemberCoachContext(
+  pool,
+  user.sim_user_id
+);
+
+const activeCoachingAlerts =
+  await getActiveCoachingAlerts(
+    pool,
+    user.sim_user_id
+  );
+
+context.log(
+  `Loaded ${activeCoachingAlerts.length} active coaching alert(s) for simulated user ${user.sim_user_id}.`
+);
 
 if (isSecuredTierBalanceTransferQuestion(question)) {
   const securedTierBtAnswer =
@@ -1904,6 +1995,7 @@ if (isSecuredTierBalanceTransferQuestion(question)) {
       },
       knowledgeArticle: null,
       memberCoachContext,
+      activeCoachingAlerts,
       recommendation: {
         recommendedStrategy: "secured_tier_transfer_rule",
         recommendedCardLabel: "Not applicable",
@@ -1989,14 +2081,32 @@ if (isBalanceTransferEligibilityQuestion(question)) {
 }
 
       if (mode === "dashboard_check") {
-        const proactiveDecision =
-          determineProactivePrompt(memberCoachContext);
+  const activeUtilizationAlert =
+    activeCoachingAlerts.find(
+      (alert) =>
+        alert.alert_type ===
+        "utilization_payment_recommendation"
+    );
 
-        const dashboardShortAnswer =
-          buildDashboardPromptAnswer(
-            memberCoachContext,
-            proactiveDecision
-          );
+  const proactiveDecision =
+    activeUtilizationAlert
+      ? {
+          shouldProactivelyPrompt: true,
+          promptType:
+            "utilization_payment_recommendation",
+          promptSeverity:
+            activeUtilizationAlert.severity || "yellow",
+          reason:
+            "An active deterministic utilization payment recommendation exists."
+        }
+      : determineProactivePrompt(memberCoachContext);
+
+  const dashboardShortAnswer =
+    activeUtilizationAlert?.message ||
+    buildDashboardPromptAnswer(
+      memberCoachContext,
+      proactiveDecision
+    );
 
         return {
           status: 200,
@@ -2019,7 +2129,8 @@ if (isBalanceTransferEligibilityQuestion(question)) {
             shortAnswer: dashboardShortAnswer,
             suggestedQuestions:
               buildSuggestedQuestions(memberCoachContext, proactiveDecision),
-            memberCoachContext
+            memberCoachContext,
+            activeCoachingAlerts
           }
         };
       }
@@ -2220,6 +2331,7 @@ if (requiresDebtScenario && externalCards.length === 0) {
       },
       knowledgeArticle: null,
       memberCoachContext,
+      activeCoachingAlerts,
       recommendation: {
         recommendedStrategy: null,
         recommendedCardLabel: null,
@@ -2261,6 +2373,7 @@ if (requiresDebtScenario && !scenario) {
       },
       knowledgeArticle: null,
       memberCoachContext,
+      activeCoachingAlerts,
       recommendation: {
         recommendedStrategy: null,
         recommendedCardLabel: null,
@@ -2302,7 +2415,8 @@ const coachContext = buildCoachContext({
   scenario,
   plan,
   knowledgeArticle,
-  memberCoachContext
+  memberCoachContext,
+  activeCoachingAlerts
 });
 
 const deterministicShortAnswer =
@@ -2403,6 +2517,7 @@ return {
     },
     knowledgeArticle: coachContext.knowledgeArticleUsed || null,
     memberCoachContext,
+    activeCoachingAlerts,
     recommendation: {
       recommendedStrategy: plan.recommendedStrategy,
       recommendedCardLabel: plan.recommendedCardLabel,

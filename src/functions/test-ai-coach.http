@@ -4,5 +4,5 @@ Content-Type: application/json
 {
   "email": "jamie.foundation@keyr-sim.test",
   "mode": "ask",
-  "question": "How do payments affect my progress?"
+  "question": "How am I doing?"
 }
