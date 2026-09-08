@@ -303,12 +303,8 @@ app.http('survey', {
         ...currentNeeds.map(value => ({
           question_code: 'current_needs',
           option_value: value
-        })),
-        ...learnBeforeStart.map(value => ({
-          question_code: 'learn_before_start',
-          option_value: value
         }))
-      ];
+];
 
       for (const row of selectionRows) {
         const requestSelection = new sql.Request(transaction);
