@@ -176,8 +176,6 @@ app.http('survey', {
     const surveySubmissionId = randomUUID();
     const rawPayload = JSON.stringify(payload);
     const currentNeedsJson = JSON.stringify(currentNeeds);
-    const mostValuableBenefitJson = JSON.stringify(mostValuableBenefit);
-    const balanceTransferInterestJson = JSON.stringify(balanceTransferInterest);
 
     const mainInsertSql = `
       INSERT INTO dbo.SurveySubmissions (
@@ -285,8 +283,8 @@ app.http('survey', {
       88
       */
       requestMain.input('starting_experience', sql.NVarChar(120), startingExperience);
-      requestMain.input('most_valuable_benefit_json', sql.NVarChar(sql.MAX), mostValuableBenefitJson);
-      requestMain.input('balance_transfer_interest_json', sql.NVarChar(sql.MAX), balanceTransferInterestJson);
+      requestMain.input('most_valuable_benefit', sql.NVarChar(sql.MAX), mostValuableBenefit);
+      requestMain.input('balance_transfer_interest', sql.NVarChar(sql.MAX), balanceTransferInterest);
       requestMain.input('learn_before_start_json', sql.NVarChar(sql.MAX), null);
       requestMain.input('trusted_approach', sql.NVarChar(120), trustedApproach);
       requestMain.input('contact_permission', sql.NVarChar(50), contactPermission);

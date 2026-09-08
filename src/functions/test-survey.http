@@ -1,0 +1,45 @@
+POST https://keyr-dev-func-d3e5hbgxe4e2gcgk.centralus-01.azurewebsites.net/api/survey
+Content-Type: application/json
+
+{
+  "source": "survey",
+  "survey_name": "start_your_path",
+  "title": "Start Your Path",
+  "survey_version": "2026.09",
+  "submitted_at_utc": "2026-09-07T21:45:00.000Z",
+  "page_url": "http://127.0.0.1:5500/survey.html",
+  "referrer": "",
+  "user_agent": "VS Code REST Client",
+  "language": "en-US",
+  "timezone": "America/Chicago",
+  "responses": {
+    "journey_stage": "want_to_improve_and_grow",
+    "current_needs": [
+      "reduce_interest_costs",
+      "lower_monthly_payments"
+    ],
+    "signup_intent": "probably_would",
+    "preferred_starting_path": "lower_interest_unsecured_if_eligible",
+    "starting_experience": "lower_interest_unsecured_if_eligible",
+    "most_valuable_benefit": "lower_interest_costs",
+    "balance_transfer_interest": "very_interested",
+    "trusted_approach": "structured_progress_over_time",
+    "contact_permission": "no_just_feedback",
+    "email": "",
+    "open_feedback": "Testing the revised survey."
+  },
+  "routing": {
+    "opted_for_contact": false
+  },
+  "metadata": {
+    "submission_type": "first",
+    "submitted_at_utc": "2026-09-07T21:45:00.000Z",
+    "user_agent": "VS Code REST Client",
+    "timezone": "America/Chicago"
+  },
+  "tags": {
+    "app": "KEYR",
+    "experience": "path_survey",
+    "channel": "web"
+  }
+}
