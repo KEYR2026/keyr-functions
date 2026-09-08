@@ -205,7 +205,12 @@ app.http('survey', {
         wants_education,
         opted_for_contact,
         submitted_at_utc,
-        payload_json
+        payload_json,
+        is_simulated,
+        record_source,
+        source_detail,
+        survey_version,
+        profile_builder_status
       )
       VALUES (
         @survey_submission_id,
@@ -233,8 +238,16 @@ app.http('survey', {
         @education_interest,
         @wants_education,
         @opted_for_contact,
-        COALESCE(TRY_CAST(@submitted_at_utc AS datetime2(3)), SYSUTCDATETIME()),
-        @payload_json
+        COALESCE(
+        TRY_CAST(@submitted_at_utc AS datetime2(3)),
+        SYSUTCDATETIME()
+        ),
+        @payload_json,
+        @is_simulated,
+        @record_source,
+        @source_detail,
+        @survey_version,
+        @profile_builder_status
       );
     `;
 
@@ -274,6 +287,9 @@ app.http('survey', {
       requestMain.input('current_needs_json', sql.NVarChar(sql.MAX), currentNeedsJson);
       requestMain.input('signup_intent', sql.NVarChar(100), signupIntent);
       requestMain.input('preferred_starting_path', sql.NVarChar(100), preferredStartingPath);
+      requestMain.input('is_simulated', sql.Bit, 0);
+      requestMain.input('record_source', sql.NVarChar(50), 'public_survey');
+      requestMain.input('survey_version', sql.NVarChar(30), '2026.09');
 
       /*
       86
@@ -295,6 +311,8 @@ app.http('survey', {
       requestMain.input('opted_for_contact', sql.Bit, optedForContact ? 1 : 0);
       requestMain.input('submitted_at_utc', sql.NVarChar(40), submittedAtUtc);
       requestMain.input('payload_json', sql.NVarChar(sql.MAX), rawPayload);
+      requestMain.input('source_detail', sql.NVarChar(100), 'keyr_public_website');
+      requestMain.input('profile_builder_status', sql.NVarChar(30), 'offered');
 
       await requestMain.query(mainInsertSql);
 
