@@ -127,14 +127,16 @@ app.http('survey', {
     // Core response fields
     const journeyStage = cleanString(responses.journey_stage, 100);
     const currentNeeds = cleanArray(responses.current_needs, 200);
-    const interestStrength = cleanString(responses.interest_strength, 100);
     const startingExperience = cleanString(responses.starting_experience, 120);
-    const learnBeforeStart = cleanArray(responses.learn_before_start, 200);
     const trustedApproach = cleanString(responses.trusted_approach, 120);
     const contactPermission = cleanString(responses.contact_permission, 50);
     const email = cleanString(responses.email, 320);
     const openFeedback = cleanString(responses.open_feedback, 4000);
-    const educationInterest = cleanString(responses.education_interest, 50);
+    const signupIntent = cleanString(responses.signup_intent, 100);
+    const preferredStartingPath = cleanString(responses.preferred_starting_path, 100);
+    const mostValuableBenefit = cleanString(responses.most_valuable_benefit, 100);
+    const balanceTransferInterest = cleanString(responses.balance_transfer_interest, 100);
+    
 
     // Metadata
     const submissionType = cleanString(metadata.submission_type, 20) || 'first';
@@ -145,10 +147,7 @@ app.http('survey', {
     const timezone = cleanString(metadata.timezone || payload?.timezone, 100);
     const submittedAtUtc = cleanString(metadata.submitted_at_utc || payload?.submitted_at_utc, 40);
 
-    const wantsEducation =
-      toBool(routing.wants_education) ||
-      educationInterest === 'yes_take_me_to_education';
-
+    
     const optedForContact =
       toBool(routing.opted_for_contact) ||
       contactPermission === 'yes_contact_me';
@@ -159,12 +158,12 @@ app.http('survey', {
     if (source !== 'survey') validationErrors.push('source must equal "survey".');
     if (!journeyStage) validationErrors.push('journey_stage is required.');
     if (!currentNeeds.length) validationErrors.push('At least one current_needs option is required.');
-    if (!interestStrength) validationErrors.push('interest_strength is required.');
+    if (!signupIntent) validationErrors.push('signup_intent is required.');
     if (!startingExperience) validationErrors.push('starting_experience is required.');
-    if (!learnBeforeStart.length) validationErrors.push('At least one learn_before_start option is required.');
+    if (!mostValuableBenefit) validationErrors.push('At least one most_valuable_benefit option is required.');
     if (!trustedApproach) validationErrors.push('trusted_approach is required.');
     if (!contactPermission) validationErrors.push('contact_permission is required.');
-    if (!educationInterest) validationErrors.push('education_interest is required.');
+    if (!balanceTransferInterest) validationErrors.push('balance_transfer_interest is required.');
 
     if (optedForContact && !email) {
       validationErrors.push('email is required when contact_permission is yes_contact_me.');
@@ -177,7 +176,8 @@ app.http('survey', {
     const surveySubmissionId = randomUUID();
     const rawPayload = JSON.stringify(payload);
     const currentNeedsJson = JSON.stringify(currentNeeds);
-    const learnBeforeStartJson = JSON.stringify(learnBeforeStart);
+    const mostValuableBenefitJson = JSON.stringify(mostValuableBenefit);
+    const balanceTransferInterestJson = JSON.stringify(balanceTransferInterest);
 
     const mainInsertSql = `
       INSERT INTO dbo.SurveySubmissions (
@@ -193,7 +193,10 @@ app.http('survey', {
         submission_type,
         journey_stage,
         current_needs_json,
-        interest_strength,
+        signup_intent,
+        preferred_starting_path,
+        most_valuable_benefit,
+        balance_transfer_interest,
         starting_experience,
         learn_before_start_json,
         trusted_approach,
@@ -219,7 +222,10 @@ app.http('survey', {
         @submission_type,
         @journey_stage,
         @current_needs_json,
-        @interest_strength,
+        @signup_intent,
+        @preferred_starting_path,
+        @most_valuable_benefit,
+        @balance_transfer_interest,
         @starting_experience,
         @learn_before_start_json,
         @trusted_approach,
@@ -268,15 +274,26 @@ app.http('survey', {
       requestMain.input('submission_type', sql.NVarChar(20), submissionType);
       requestMain.input('journey_stage', sql.NVarChar(100), journeyStage);
       requestMain.input('current_needs_json', sql.NVarChar(sql.MAX), currentNeedsJson);
-      requestMain.input('interest_strength', sql.NVarChar(100), interestStrength);
+      requestMain.input('signup_intent', sql.NVarChar(100), signupIntent);
+      requestMain.input('preferred_starting_path', sql.NVarChar(100), preferredStartingPath);
+
+      /*
+      86
+      * Temporary*backward compatibility because
+      87
+      * *tarting_experience is still NOT NU*L.
+      88
+      */
       requestMain.input('starting_experience', sql.NVarChar(120), startingExperience);
-      requestMain.input('learn_before_start_json', sql.NVarChar(sql.MAX), learnBeforeStartJson);
+      requestMain.input('most_valuable_benefit_json', sql.NVarChar(sql.MAX), mostValuableBenefitJson);
+      requestMain.input('balance_transfer_interest_json', sql.NVarChar(sql.MAX), balanceTransferInterestJson);
+      requestMain.input('learn_before_start_json', sql.NVarChar(sql.MAX), null);
       requestMain.input('trusted_approach', sql.NVarChar(120), trustedApproach);
       requestMain.input('contact_permission', sql.NVarChar(50), contactPermission);
       requestMain.input('email', sql.NVarChar(320), email);
       requestMain.input('open_feedback', sql.NVarChar(sql.MAX), openFeedback);
-      requestMain.input('education_interest', sql.NVarChar(50), educationInterest);
-      requestMain.input('wants_education', sql.Bit, wantsEducation ? 1 : 0);
+      requestMain.input('education_interest', sql.NVarChar(100), null);
+      requestMain.input('wants_education', sql.Bit, 0);
       requestMain.input('opted_for_contact', sql.Bit, optedForContact ? 1 : 0);
       requestMain.input('submitted_at_utc', sql.NVarChar(40), submittedAtUtc);
       requestMain.input('payload_json', sql.NVarChar(sql.MAX), rawPayload);
@@ -306,15 +323,16 @@ app.http('survey', {
       await transaction.commit();
 
       return {
-        status: 200,
-        headers,
-        jsonBody: {
-          ok: true,
-          survey_submission_id: surveySubmissionId,
-          submission_type: submissionType,
-          wants_education: wantsEducation
-        }
-      };
+      status: 200,
+      headers,
+      jsonBody: {
+      ok: true,
+      survey_submission_id:
+      surveySubmissionId,
+
+      profile_builder_eligible: true
+  }
+};
     } catch (error) {
       context.error('Survey submission failed.', error);
 
