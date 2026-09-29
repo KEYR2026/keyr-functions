@@ -118,9 +118,15 @@ function validatePayload(payload) {
   ];
 
   const allowedTiers = [
+    "Anchor Base",
     "Anchor",
+    "Anchor (Secured)",
+    "Merit",
+    "Merit (Secured)",
     "Ascend",
-    "Apex"
+    "Ascend (Unsecured)",
+    "Apex",
+    "Apex (Unsecured)"
   ];
 
   if (!payload.source) {
