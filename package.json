@@ -5,10 +5,11 @@
   "main": "src/functions/*.js",
   "scripts": {
     "start": "func start",
-    "test": "echo \"No tests yet...\""
+    "test": "node --test"
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
+    "@azure/storage-queue": "^12.25.0",
     "mssql": "^10.0.4",
     "openai": "^6.46.0"
   }

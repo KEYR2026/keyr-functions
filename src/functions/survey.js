@@ -1,12 +1,27 @@
 const { app } = require('@azure/functions');
-const sql = require('mssql');
-const { randomUUID } = require('crypto');
+const { QueueClient } = require('@azure/storage-queue');
 
-let pool;
+const QUEUE_NAME = 'keyr-survey-submissions';
+const SURVEY_SCHEMA_VERSION = '2026.09';
 
-/**
- * Basic CORS support
- */
+function cleanString(value, maxLength = 4000) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  return normalized.slice(0, maxLength);
+}
+
+function cleanArray(value, maxLength = 200) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanString(item, maxLength))
+    .filter(Boolean);
+}
+
+function toBool(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 function corsHeaders(origin) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
   const resolvedOrigin = allowedOrigin === '*' ? '*' : (origin || allowedOrigin);
@@ -18,49 +33,6 @@ function corsHeaders(origin) {
     'Access-Control-Max-Age': '86400',
     'Content-Type': 'application/json'
   };
-}
-
-/**
- * Reuse SQL connection pool
- */
-async function getPool() {
-  if (pool && pool.connected) return pool;
-
-  const connectionString = process.env.KEYR_DB_CONNECTION;
-
-  if (!connectionString) {
-    throw new Error('Missing KEYR_DB_CONNECTION application setting.');
-  }
-
-  pool = await sql.connect(connectionString);
-  return pool;
-}
-
-/**
- * Clean and normalize strings
- */
-function cleanString(value, maxLength = 4000) {
-  if (value === null || value === undefined) return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  return normalized.slice(0, maxLength);
-}
-
-/**
- * Clean array values
- */
-function cleanArray(value, maxLength = 200) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map(item => cleanString(item, maxLength))
-    .filter(Boolean);
-}
-
-/**
- * Loose boolean normalization
- */
-function toBool(value) {
-  return value === true || value === 'true' || value === 1 || value === '1';
 }
 
 function badRequest(headers, message, details = []) {
@@ -75,6 +47,56 @@ function badRequest(headers, message, details = []) {
   };
 }
 
+function generateClientSubmissionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const randomValue = Math.random() * 16 | 0;
+    const value = character === 'x' ? randomValue : (randomValue & 0x3 | 0x8);
+    return value.toString(16);
+  });
+}
+
+function isValidClientSubmissionId(value) {
+  return typeof value === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(value.trim());
+}
+
+function buildQueueMessage(payload) {
+  const clientSubmissionId = cleanString(payload?.client_submission_id, 64);
+  const queuedAtUtc = new Date().toISOString();
+
+  return {
+    ...payload,
+    source: 'survey',
+    client_submission_id: clientSubmissionId,
+    queued_at_utc: queuedAtUtc,
+    schema_version: SURVEY_SCHEMA_VERSION,
+    metadata: {
+      ...(payload?.metadata || {}),
+      submitted_at_utc: payload?.metadata?.submitted_at_utc || payload?.submitted_at_utc || queuedAtUtc,
+      user_agent: cleanString(payload?.metadata?.user_agent || payload?.user_agent, 1000),
+      timezone: cleanString(payload?.metadata?.timezone || payload?.timezone, 100)
+    }
+  };
+}
+
+async function enqueueSurveySubmission(context, payload, queueClientFactory = (connectionString, queueName) => new QueueClient(connectionString, queueName)) {
+  const storageConnectionString = process.env.AzureWebJobsStorage;
+  if (!storageConnectionString) {
+    throw new Error('Missing AzureWebJobsStorage application setting.');
+  }
+
+  const queueMessage = buildQueueMessage(payload);
+  const queueClient = queueClientFactory(storageConnectionString, QUEUE_NAME);
+  await queueClient.sendMessage(JSON.stringify(queueMessage), {
+    messageTimeToLive: 7 * 24 * 60 * 60
+  });
+
+  return queueMessage;
+}
+
 app.http('survey', {
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
@@ -83,7 +105,6 @@ app.http('survey', {
     const origin = request.headers.get('origin') || '';
     const headers = corsHeaders(origin);
 
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return {
         status: 204,
@@ -102,16 +123,11 @@ app.http('survey', {
     const source = cleanString(payload?.source, 50);
     const surveyName = cleanString(payload?.survey_name, 100) || 'start_your_path';
     const title = cleanString(payload?.title, 200) || 'Start Your Path';
-
     const responses = payload?.responses || {};
     const routing = payload?.routing || {};
     const metadata = payload?.metadata || {};
+    const clientSubmissionId = cleanString(payload?.client_submission_id, 64);
 
-    /**
-     * Optional honeypot support
-     * If you add a hidden field named "company" later on the frontend,
-     * bots that fill it can be safely ignored.
-     */
     const honeypot = cleanString(payload?.company, 200);
     if (honeypot) {
       return {
@@ -124,7 +140,6 @@ app.http('survey', {
       };
     }
 
-    // Core response fields
     const journeyStage = cleanString(responses.journey_stage, 100);
     const currentNeeds = cleanArray(responses.current_needs, 200);
     const startingExperience = cleanString(responses.starting_experience, 120);
@@ -136,9 +151,7 @@ app.http('survey', {
     const preferredStartingPath = cleanString(responses.preferred_starting_path, 100);
     const mostValuableBenefit = cleanString(responses.most_valuable_benefit, 100);
     const balanceTransferInterest = cleanString(responses.balance_transfer_interest, 100);
-    
 
-    // Metadata
     const submissionType = cleanString(metadata.submission_type, 20) || 'first';
     const pageUrl = cleanString(payload?.page_url, 2048);
     const referrer = cleanString(payload?.referrer, 2048);
@@ -146,16 +159,14 @@ app.http('survey', {
     const language = cleanString(payload?.language, 50);
     const timezone = cleanString(metadata.timezone || payload?.timezone, 100);
     const submittedAtUtc = cleanString(metadata.submitted_at_utc || payload?.submitted_at_utc, 40);
+    const optedForContact = toBool(routing.opted_for_contact) || contactPermission === 'yes_contact_me';
 
-    
-    const optedForContact =
-      toBool(routing.opted_for_contact) ||
-      contactPermission === 'yes_contact_me';
-
-    // Validation
     const validationErrors = [];
 
     if (source !== 'survey') validationErrors.push('source must equal "survey".');
+    if (!clientSubmissionId || !isValidClientSubmissionId(clientSubmissionId)) {
+      validationErrors.push('client_submission_id is required and must be a valid UUID.');
+    }
     if (!journeyStage) validationErrors.push('journey_stage is required.');
     if (!currentNeeds.length) validationErrors.push('At least one current_needs option is required.');
     if (!signupIntent) validationErrors.push('signup_intent is required.');
@@ -164,7 +175,6 @@ app.http('survey', {
     if (!trustedApproach) validationErrors.push('trusted_approach is required.');
     if (!contactPermission) validationErrors.push('contact_permission is required.');
     if (!balanceTransferInterest) validationErrors.push('balance_transfer_interest is required.');
-
     if (optedForContact && !email) {
       validationErrors.push('email is required when contact_permission is yes_contact_me.');
     }
@@ -173,197 +183,80 @@ app.http('survey', {
       return badRequest(headers, 'Validation failed.', validationErrors);
     }
 
-    const surveySubmissionId = randomUUID();
-    const rawPayload = JSON.stringify(payload);
-    const currentNeedsJson = JSON.stringify(currentNeeds);
-
-    const mainInsertSql = `
-      INSERT INTO dbo.SurveySubmissions (
-        survey_submission_id,
-        source,
-        survey_name,
-        title,
-        page_url,
-        referrer,
-        user_agent,
-        language,
-        timezone,
-        submission_type,
-        journey_stage,
-        current_needs_json,
-        signup_intent,
-        preferred_starting_path,
-        most_valuable_benefit,
-        balance_transfer_interest,
-        starting_experience,
-        learn_before_start_json,
-        trusted_approach,
-        contact_permission,
+    const normalizedPayload = {
+      ...payload,
+      source,
+      survey_name: surveyName,
+      title,
+      client_submission_id: clientSubmissionId,
+      submitted_at_utc: submittedAtUtc,
+      page_url: pageUrl,
+      referrer,
+      user_agent: userAgent,
+      language,
+      timezone,
+      responses: {
+        ...responses,
+        starting_experience: startingExperience,
+        current_needs: currentNeeds,
+        journey_stage: journeyStage,
+        signup_intent: signupIntent,
+        preferred_starting_path: preferredStartingPath,
+        most_valuable_benefit: mostValuableBenefit,
+        balance_transfer_interest: balanceTransferInterest,
+        trusted_approach: trustedApproach,
+        contact_permission: contactPermission,
         email,
-        open_feedback,
-        education_interest,
-        wants_education,
-        opted_for_contact,
-        submitted_at_utc,
-        payload_json,
-        is_simulated,
-        record_source,
-        source_detail,
-        survey_version,
-        profile_builder_status
-      )
-      VALUES (
-        @survey_submission_id,
-        @source,
-        @survey_name,
-        @title,
-        @page_url,
-        @referrer,
-        @user_agent,
-        @language,
-        @timezone,
-        @submission_type,
-        @journey_stage,
-        @current_needs_json,
-        @signup_intent,
-        @preferred_starting_path,
-        @most_valuable_benefit,
-        @balance_transfer_interest,
-        @starting_experience,
-        @learn_before_start_json,
-        @trusted_approach,
-        @contact_permission,
-        @email,
-        @open_feedback,
-        @education_interest,
-        @wants_education,
-        @opted_for_contact,
-        COALESCE(
-        TRY_CAST(@submitted_at_utc AS datetime2(3)),
-        SYSUTCDATETIME()
-        ),
-        @payload_json,
-        @is_simulated,
-        @record_source,
-        @source_detail,
-        @survey_version,
-        @profile_builder_status
-      );
-    `;
-
-    const selectionInsertSql = `
-      INSERT INTO dbo.SurveySubmissionSelections (
-        survey_submission_id,
-        question_code,
-        option_value
-      )
-      VALUES (
-        @survey_submission_id,
-        @question_code,
-        @option_value
-      );
-    `;
-
-    let transaction;
+        open_feedback: openFeedback
+      },
+      routing: {
+        ...routing,
+        opted_for_contact: optedForContact
+      },
+      metadata: {
+        ...metadata,
+        submission_type: submissionType,
+        submitted_at_utc: submittedAtUtc,
+        user_agent: userAgent,
+        timezone,
+        source: 'survey'
+      }
+    };
 
     try {
-      const sqlPool = await getPool();
-      transaction = new sql.Transaction(sqlPool);
-      await transaction.begin();
-
-      // Main row insert
-      const requestMain = new sql.Request(transaction);
-      requestMain.input('survey_submission_id', sql.UniqueIdentifier, surveySubmissionId);
-      requestMain.input('source', sql.NVarChar(50), source);
-      requestMain.input('survey_name', sql.NVarChar(100), surveyName);
-      requestMain.input('title', sql.NVarChar(200), title);
-      requestMain.input('page_url', sql.NVarChar(2048), pageUrl);
-      requestMain.input('referrer', sql.NVarChar(2048), referrer);
-      requestMain.input('user_agent', sql.NVarChar(1000), userAgent);
-      requestMain.input('language', sql.NVarChar(50), language);
-      requestMain.input('timezone', sql.NVarChar(100), timezone);
-      requestMain.input('submission_type', sql.NVarChar(20), submissionType);
-      requestMain.input('journey_stage', sql.NVarChar(100), journeyStage);
-      requestMain.input('current_needs_json', sql.NVarChar(sql.MAX), currentNeedsJson);
-      requestMain.input('signup_intent', sql.NVarChar(100), signupIntent);
-      requestMain.input('preferred_starting_path', sql.NVarChar(100), preferredStartingPath);
-      requestMain.input('is_simulated', sql.Bit, 0);
-      requestMain.input('record_source', sql.NVarChar(50), 'public_survey');
-      requestMain.input('survey_version', sql.NVarChar(30), '2026.09');
-
-      /*
-      86
-      * Temporary*backward compatibility because
-      87
-      * *tarting_experience is still NOT NU*L.
-      88
-      */
-      requestMain.input('starting_experience', sql.NVarChar(120), startingExperience);
-      requestMain.input('most_valuable_benefit', sql.NVarChar(sql.MAX), mostValuableBenefit);
-      requestMain.input('balance_transfer_interest', sql.NVarChar(sql.MAX), balanceTransferInterest);
-      requestMain.input('learn_before_start_json', sql.NVarChar(sql.MAX), null);
-      requestMain.input('trusted_approach', sql.NVarChar(120), trustedApproach);
-      requestMain.input('contact_permission', sql.NVarChar(50), contactPermission);
-      requestMain.input('email', sql.NVarChar(320), email);
-      requestMain.input('open_feedback', sql.NVarChar(sql.MAX), openFeedback);
-      requestMain.input('education_interest', sql.NVarChar(100), null);
-      requestMain.input('wants_education', sql.Bit, 0);
-      requestMain.input('opted_for_contact', sql.Bit, optedForContact ? 1 : 0);
-      requestMain.input('submitted_at_utc', sql.NVarChar(40), submittedAtUtc);
-      requestMain.input('payload_json', sql.NVarChar(sql.MAX), rawPayload);
-      requestMain.input('source_detail', sql.NVarChar(100), 'keyr_public_website');
-      requestMain.input('profile_builder_status', sql.NVarChar(30), 'offered');
-
-      await requestMain.query(mainInsertSql);
-
-      // Child rows for multi-select answers
-      const selectionRows = [
-        ...currentNeeds.map(value => ({
-          question_code: 'current_needs',
-          option_value: value
-        }))
-];
-
-      for (const row of selectionRows) {
-        const requestSelection = new sql.Request(transaction);
-        requestSelection.input('survey_submission_id', sql.UniqueIdentifier, surveySubmissionId);
-        requestSelection.input('question_code', sql.NVarChar(50), row.question_code);
-        requestSelection.input('option_value', sql.NVarChar(200), row.option_value);
-        await requestSelection.query(selectionInsertSql);
-      }
-
-      await transaction.commit();
+      await enqueueSurveySubmission(context, normalizedPayload);
 
       return {
-      status: 200,
-      headers,
-      jsonBody: {
-      ok: true,
-      survey_submission_id:
-      surveySubmissionId,
-
-      profile_builder_eligible: true
-  }
-};
-    } catch (error) {
-      context.error('Survey submission failed.', error);
-
-      if (transaction) {
-        try {
-          await transaction.rollback();
-        } catch (rollbackError) {
-          context.error('Survey transaction rollback failed.', rollbackError);
+        status: 202,
+        headers,
+        jsonBody: {
+          ok: true,
+          accepted: true,
+          client_submission_id: clientSubmissionId
         }
-      }
-
+      };
+    } catch (error) {
+      context.error('Survey queue acceptance failed.', error);
       return {
-        status: 500,
+        status: 503,
         headers,
         jsonBody: {
           ok: false,
-          error: 'Survey submission failed.'
+          accepted: false,
+          error: 'We could not receive your survey right now. Please try again later.'
         }
       };
     }
   }
 });
+
+module.exports = {
+  QUEUE_NAME,
+  SURVEY_SCHEMA_VERSION,
+  buildQueueMessage,
+  cleanArray,
+  cleanString,
+  enqueueSurveySubmission,
+  generateClientSubmissionId,
+  isValidClientSubmissionId
+};
