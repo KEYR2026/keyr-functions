@@ -1,6 +1,11 @@
 const { randomUUID } = require('crypto');
 const { app } = require('@azure/functions');
 const sql = require('mssql');
+const {
+  DEFAULT_SURVEY_VERSION,
+  resolveSurveyVersion,
+  validateV2026_10Responses
+} = require('./surveySchema');
 
 const QUEUE_NAME = 'keyr-survey-submissions';
 
@@ -9,6 +14,17 @@ function cleanString(value, maxLength = 4000) {
   const normalized = String(value).trim();
   if (!normalized) return null;
   return normalized.slice(0, maxLength);
+}
+
+function cleanArray(value, maxLength = 200) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanString(item, maxLength))
+    .filter(Boolean);
+}
+
+function validateEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
 }
 
 function isValidClientSubmissionId(value) {
@@ -62,12 +78,43 @@ function isUniqueKeyConflict(error) {
   return /cannot insert duplicate key|duplicate key|2601|2627/i.test(message) || [2601, 2627].includes(errorNumber);
 }
 
-function buildSelectionRows(responses) {
+function resolveQueueSurveyVersion(payload) {
+  const resolved = resolveSurveyVersion(payload?.schema_version || payload?.survey_version);
+  if (!resolved) {
+    throw Object.assign(new Error('Queue message has an unsupported survey_version.'), { category: 'invalid_message' });
+  }
+  return resolved;
+}
+
+function buildSelectionRows(responses, surveyVersion = DEFAULT_SURVEY_VERSION) {
+  if (surveyVersion === '2026.10') {
+    const primaryOutcomes = Array.isArray(responses?.primary_outcomes) ? responses.primary_outcomes : [];
+    return primaryOutcomes.map((option) => ({
+      question_code: 'primary_outcomes',
+      option_value: cleanString(option, 200)
+    })).filter((row) => row.option_value);
+  }
+
   const currentNeeds = Array.isArray(responses?.current_needs) ? responses.current_needs : [];
   return currentNeeds.map((option) => ({
     question_code: 'current_needs',
     option_value: cleanString(option, 200)
   })).filter((row) => row.option_value);
+}
+
+function getV2026_10NormalizedQueueResponses(responses) {
+  const validated = validateV2026_10Responses({
+    responses,
+    cleanString,
+    cleanArray,
+    validateEmail
+  });
+
+  if (!validated.ok) {
+    throw Object.assign(new Error('Queue message has invalid 2026.10 responses.'), { category: 'invalid_message' });
+  }
+
+  return validated.normalizedResponses;
 }
 
 let pool;
@@ -137,6 +184,7 @@ async function processSurveySubmissionQueue({
   const startedAt = new Date();
   let payload;
   let clientSubmissionId = null;
+  let resolvedSurveyVersion = null;
   let queuedAtUtc = null;
   let poolConnection = null;
   let transaction = null;
@@ -144,6 +192,8 @@ async function processSurveySubmissionQueue({
 
   try {
     payload = parseQueueMessage(queueMessage);
+    const surveyVersion = resolveQueueSurveyVersion(payload);
+    resolvedSurveyVersion = surveyVersion;
     clientSubmissionId = cleanString(payload?.client_submission_id, 64);
     queuedAtUtc = cleanString(payload?.queued_at_utc, 64) || null;
     operation.client_submission_id = clientSubmissionId;
@@ -188,21 +238,61 @@ async function processSurveySubmissionQueue({
     const language = cleanString(payload.language, 50);
     const timezone = cleanString(metadata.timezone || payload.timezone, 100);
     const submissionType = cleanString(metadata.submission_type, 20) || 'first';
-    const journeyStage = cleanString(responses.journey_stage, 100);
-    const currentNeedsJson = JSON.stringify(Array.isArray(responses.current_needs) ? responses.current_needs : []);
-    const signupIntent = cleanString(responses.signup_intent, 100);
-    const preferredStartingPath = cleanString(responses.preferred_starting_path, 100);
-    const mostValuableBenefit = cleanString(responses.most_valuable_benefit, 100);
-    const balanceTransferInterest = cleanString(responses.balance_transfer_interest, 100);
-    const startingExperience = cleanString(responses.starting_experience, 120);
-    const trustedApproach = cleanString(responses.trusted_approach, 120);
-    const contactPermission = cleanString(responses.contact_permission, 50);
-    const email = cleanString(responses.email, 320);
-    const openFeedback = cleanString(responses.open_feedback, 4000);
-    const optedForContact = !!routing.opted_for_contact || contactPermission === 'yes_contact_me';
+
+    let journeyStage = cleanString(responses.journey_stage, 100);
+    let currentNeedsJson = JSON.stringify(Array.isArray(responses.current_needs) ? responses.current_needs : []);
+    let signupIntent = cleanString(responses.signup_intent, 100);
+    let preferredStartingPath = cleanString(responses.preferred_starting_path, 100);
+    let mostValuableBenefit = cleanString(responses.most_valuable_benefit, 100);
+    let balanceTransferInterest = cleanString(responses.balance_transfer_interest, 100);
+    let startingExperience = cleanString(responses.starting_experience, 120);
+    let trustedApproach = cleanString(responses.trusted_approach, 120);
+    let contactPermission = cleanString(responses.contact_permission, 50);
+
+    let debtDuration = null;
+    let cardSituation = null;
+    let baselineApplyIntent90d = null;
+    let approachChoice = null;
+    let outcomeApplyIntent = null;
+    let topConversionDriver = null;
+    let feeAcceptance = null;
+    let nextStep = null;
+    let earlyAccessInterest = null;
+
+    let email = cleanString(responses.email, 320);
+    let openFeedback = cleanString(responses.open_feedback, 4000);
+    let optedForContact = !!routing.opted_for_contact || contactPermission === 'yes_contact_me';
+
+    if (surveyVersion === '2026.10') {
+      const normalized = getV2026_10NormalizedQueueResponses(responses);
+
+      journeyStage = null;
+      currentNeedsJson = null;
+      signupIntent = null;
+      preferredStartingPath = null;
+      mostValuableBenefit = null;
+      balanceTransferInterest = null;
+      startingExperience = null;
+      trustedApproach = null;
+      contactPermission = null;
+
+      debtDuration = normalized.debt_duration;
+      cardSituation = normalized.card_situation;
+      baselineApplyIntent90d = normalized.baseline_apply_intent_90d;
+      approachChoice = normalized.approach_choice;
+      outcomeApplyIntent = normalized.outcome_apply_intent;
+      topConversionDriver = normalized.top_conversion_driver;
+      feeAcceptance = normalized.fee_acceptance;
+      nextStep = normalized.next_step;
+      earlyAccessInterest = normalized.early_access_interest;
+      email = normalized.email;
+      openFeedback = normalized.open_feedback;
+      optedForContact = earlyAccessInterest === 'yes' || earlyAccessInterest === 'maybe';
+    }
+
     const submittedAtUtc = cleanString(payload.submitted_at_utc || metadata.submitted_at_utc || new Date().toISOString(), 40);
     const rawPayload = JSON.stringify(payload);
-    const selectionRows = buildSelectionRowsFn(responses);
+    const selectionRows = buildSelectionRowsFn(responses, surveyVersion);
 
     const mainInsertSql = `
       INSERT INTO dbo.SurveySubmissions (
@@ -217,6 +307,15 @@ async function processSurveySubmissionQueue({
         language,
         timezone,
         submission_type,
+        debt_duration,
+        card_situation,
+        baseline_apply_intent_90d,
+        approach_choice,
+        outcome_apply_intent,
+        top_conversion_driver,
+        fee_acceptance,
+        next_step,
+        early_access_interest,
         journey_stage,
         current_needs_json,
         signup_intent,
@@ -252,6 +351,15 @@ async function processSurveySubmissionQueue({
         @language,
         @timezone,
         @submission_type,
+        @debt_duration,
+        @card_situation,
+        @baseline_apply_intent_90d,
+        @approach_choice,
+        @outcome_apply_intent,
+        @top_conversion_driver,
+        @fee_acceptance,
+        @next_step,
+        @early_access_interest,
         @journey_stage,
         @current_needs_json,
         @signup_intent,
@@ -302,6 +410,17 @@ async function processSurveySubmissionQueue({
     requestMain.input('language', sqlLib.NVarChar(50), language);
     requestMain.input('timezone', sqlLib.NVarChar(100), timezone);
     requestMain.input('submission_type', sqlLib.NVarChar(20), submissionType);
+
+    requestMain.input('debt_duration', sqlLib.NVarChar(100), debtDuration);
+    requestMain.input('card_situation', sqlLib.NVarChar(100), cardSituation);
+    requestMain.input('baseline_apply_intent_90d', sqlLib.NVarChar(100), baselineApplyIntent90d);
+    requestMain.input('approach_choice', sqlLib.NVarChar(100), approachChoice);
+    requestMain.input('outcome_apply_intent', sqlLib.NVarChar(100), outcomeApplyIntent);
+    requestMain.input('top_conversion_driver', sqlLib.NVarChar(100), topConversionDriver);
+    requestMain.input('fee_acceptance', sqlLib.NVarChar(100), feeAcceptance);
+    requestMain.input('next_step', sqlLib.NVarChar(100), nextStep);
+    requestMain.input('early_access_interest', sqlLib.NVarChar(100), earlyAccessInterest);
+
     requestMain.input('journey_stage', sqlLib.NVarChar(100), journeyStage);
     requestMain.input('current_needs_json', sqlLib.NVarChar(sqlLib.MAX), currentNeedsJson);
     requestMain.input('signup_intent', sqlLib.NVarChar(100), signupIntent);
@@ -312,6 +431,7 @@ async function processSurveySubmissionQueue({
     requestMain.input('learn_before_start_json', sqlLib.NVarChar(sqlLib.MAX), null);
     requestMain.input('trusted_approach', sqlLib.NVarChar(120), trustedApproach);
     requestMain.input('contact_permission', sqlLib.NVarChar(50), contactPermission);
+
     requestMain.input('email', sqlLib.NVarChar(320), email);
     requestMain.input('open_feedback', sqlLib.NVarChar(sqlLib.MAX), openFeedback);
     requestMain.input('education_interest', sqlLib.NVarChar(100), null);
@@ -322,7 +442,7 @@ async function processSurveySubmissionQueue({
     requestMain.input('is_simulated', sqlLib.Bit, 0);
     requestMain.input('record_source', sqlLib.NVarChar(50), 'public_survey');
     requestMain.input('source_detail', sqlLib.NVarChar(100), 'keyr_public_website');
-    requestMain.input('survey_version', sqlLib.NVarChar(30), '2026.09');
+    requestMain.input('survey_version', sqlLib.NVarChar(30), surveyVersion);
     requestMain.input('profile_builder_status', sqlLib.NVarChar(30), 'offered');
 
     await requestMain.query(mainInsertSql);
@@ -386,6 +506,17 @@ async function processSurveySubmissionQueue({
       });
     }
 
+    if (operation.error_category === 'invalid_message') {
+      if (context && typeof context.warn === 'function') {
+        context.warn('Invalid survey queue message encountered; rethrowing for retry.', {
+          client_submission_id: clientSubmissionId,
+          resolved_survey_version: resolvedSurveyVersion,
+          error_category: operation.error_category
+        });
+      }
+      throw error;
+    }
+
     if (operation.error_category === 'duplicate_sql_key' && clientSubmissionId && poolConnection) {
       try {
         const existingSurveyId = await ensureNotDuplicateFn(poolConnection, clientSubmissionId);
@@ -437,10 +568,13 @@ app.storageQueue('processSurveySubmission', {
 module.exports = {
   QUEUE_NAME,
   cleanString,
+  cleanArray,
   parseQueueMessage,
   isUniqueKeyConflict,
   classifyError,
   isValidClientSubmissionId,
+  resolveQueueSurveyVersion,
   buildSelectionRows,
+  getV2026_10NormalizedQueueResponses,
   processSurveySubmissionQueue
 };

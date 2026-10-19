@@ -7,17 +7,128 @@ const {
   generateClientSubmissionId,
   isValidClientSubmissionId,
   buildQueueMessage,
-  enqueueSurveySubmission
+  enqueueSurveySubmission,
+  validateAndNormalizeSurveyPayload
 } = require('../src/functions/survey.js');
 
 const {
   parseQueueMessage,
   isValidClientSubmissionId: isValidQueueClientId,
   buildSelectionRows,
+  resolveQueueSurveyVersion,
   classifyError,
   isUniqueKeyConflict,
   processSurveySubmissionQueue
 } = require('../src/functions/processSurveySubmission.js');
+
+const {
+  resolveSurveyVersion
+} = require('../src/functions/surveySchema.js');
+
+function makeBaseTopLevelPayload() {
+  return {
+    source: 'survey',
+    client_submission_id: '12121212-1212-4121-8121-121212121212',
+    survey_name: 'start_your_path',
+    title: 'Start Your Path',
+    submitted_at_utc: '2026-10-18T10:00:00.000Z',
+    page_url: 'http://localhost/survey.html',
+    referrer: '',
+    user_agent: 'node-test',
+    language: 'en-US',
+    timezone: 'America/Chicago',
+    metadata: {
+      submission_type: 'first',
+      submitted_at_utc: '2026-10-18T10:00:00.000Z',
+      user_agent: 'node-test',
+      timezone: 'America/Chicago'
+    },
+    routing: {},
+    tags: { app: 'KEYR', experience: 'path_survey', channel: 'web' },
+    company: ''
+  };
+}
+
+function makeV2026_10Payload(overrides = {}) {
+  const payload = {
+    ...makeBaseTopLevelPayload(),
+    survey_version: '2026.10',
+    responses: {
+      primary_outcomes: ['reduce_high_interest_debt', 'debt_free_sooner'],
+      debt_duration: 'over_1_year',
+      card_situation: 'multiple_balances',
+      baseline_apply_intent_90d: 'probably',
+      approach_choice: 'keyr_financial_progress',
+      outcome_apply_intent: 'very_likely',
+      top_conversion_driver: 'interest_savings',
+      fee_acceptance: 'depends_on_net_savings',
+      next_step: 'review_terms_then_consider',
+      early_access_interest: 'yes',
+      email: 'user@example.com',
+      open_feedback: 'Helpful tools and lower interest.'
+    },
+    routing: {
+      opted_for_contact: true
+    }
+  };
+
+  return {
+    ...payload,
+    ...overrides,
+    responses: {
+      ...payload.responses,
+      ...(overrides.responses || {})
+    },
+    routing: {
+      ...payload.routing,
+      ...(overrides.routing || {})
+    },
+    metadata: {
+      ...payload.metadata,
+      ...(overrides.metadata || {})
+    }
+  };
+}
+
+function makeV2026_09Payload(overrides = {}) {
+  const payload = {
+    ...makeBaseTopLevelPayload(),
+    survey_version: '2026.09',
+    responses: {
+      journey_stage: 'want_to_improve_and_grow',
+      current_needs: ['reduce_interest_costs', 'lower_monthly_payments'],
+      signup_intent: 'probably_would',
+      preferred_starting_path: 'lower_interest_unsecured_if_eligible',
+      starting_experience: 'lower_interest_unsecured_if_eligible',
+      most_valuable_benefit: 'lower_interest_costs',
+      balance_transfer_interest: 'very_interested',
+      trusted_approach: 'structured_progress_over_time',
+      contact_permission: 'no_just_feedback',
+      email: null,
+      open_feedback: 'existing flow'
+    },
+    routing: {
+      opted_for_contact: false
+    }
+  };
+
+  return {
+    ...payload,
+    ...overrides,
+    responses: {
+      ...payload.responses,
+      ...(overrides.responses || {})
+    },
+    routing: {
+      ...payload.routing,
+      ...(overrides.routing || {})
+    },
+    metadata: {
+      ...payload.metadata,
+      ...(overrides.metadata || {})
+    }
+  };
+}
 
 function createContext() {
   return {
@@ -100,6 +211,239 @@ test('buildQueueMessage creates only one source property and source equals surve
   const message = buildQueueMessage(payload);
   assert.equal(message.source, 'survey');
   assert.equal(Object.keys(message).filter((key) => key === 'source').length, 1);
+});
+
+test('valid v2026.10 payload validates and enqueues schema_version 2026.10', async () => {
+  const originalConnection = process.env.AzureWebJobsStorage;
+  process.env.AzureWebJobsStorage = 'UseDevelopmentStorage=true';
+
+  const payload = makeV2026_10Payload();
+  const validation = validateAndNormalizeSurveyPayload(payload);
+  assert.equal(validation.ok, true);
+  assert.equal(validation.resolvedSurveyVersion, '2026.10');
+
+  const calls = [];
+  try {
+    await enqueueSurveySubmission(
+      createContext(),
+      validation.normalizedPayload,
+      () => ({
+        sendMessage: async (message) => calls.push(JSON.parse(message))
+      }),
+      validation.resolvedSurveyVersion
+    );
+  } finally {
+    if (originalConnection === undefined) {
+      delete process.env.AzureWebJobsStorage;
+    } else {
+      process.env.AzureWebJobsStorage = originalConnection;
+    }
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].schema_version, '2026.10');
+  assert.equal(calls[0].survey_version, '2026.10');
+});
+
+test('missing survey_version resolves to 2026.09', () => {
+  assert.equal(resolveSurveyVersion(undefined), '2026.09');
+  const payload = makeV2026_09Payload({ survey_version: undefined });
+  const validation = validateAndNormalizeSurveyPayload(payload);
+  assert.equal(validation.ok, true);
+  assert.equal(validation.resolvedSurveyVersion, '2026.09');
+});
+
+test('unknown survey_version is rejected with 400-compatible validation failure', () => {
+  const payload = makeV2026_10Payload({ survey_version: '2027.01' });
+  const validation = validateAndNormalizeSurveyPayload(payload);
+  assert.equal(validation.ok, false);
+  assert.equal(validation.publicMessage, 'Invalid survey submission.');
+  assert.equal(resolveSurveyVersion('2027.01'), null);
+});
+
+test('v2026.10 missing required field is rejected', () => {
+  const payload = makeV2026_10Payload({ responses: { debt_duration: null } });
+  const validation = validateAndNormalizeSurveyPayload(payload);
+  assert.equal(validation.ok, false);
+  assert.equal(validation.publicMessage, 'Validation failed.');
+});
+
+test('v2026.10 invalid option is rejected', () => {
+  const payload = makeV2026_10Payload({ responses: { card_situation: 'bad_value' } });
+  const validation = validateAndNormalizeSurveyPayload(payload);
+  assert.equal(validation.ok, false);
+  assert.equal(validation.publicMessage, 'Validation failed.');
+});
+
+test('v2026.10 primary_outcomes enforces 1-2 unique values', () => {
+  const zero = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { primary_outcomes: [] } }));
+  const three = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { primary_outcomes: ['reduce_high_interest_debt', 'debt_free_sooner', 'lower_monthly_payments'] } }));
+  const dup = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { primary_outcomes: ['reduce_high_interest_debt', 'reduce_high_interest_debt'] } }));
+
+  assert.equal(zero.ok, false);
+  assert.equal(three.ok, false);
+  assert.equal(dup.ok, false);
+});
+
+test('v2026.10 early_access_interest yes/maybe requires valid email', () => {
+  const yesMissing = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { early_access_interest: 'yes', email: null } }));
+  const maybeInvalid = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { early_access_interest: 'maybe', email: 'bad-email' } }));
+
+  assert.equal(yesMissing.ok, false);
+  assert.equal(maybeInvalid.ok, false);
+});
+
+test('v2026.10 early_access_interest no accepts and clears email', () => {
+  const validation = validateAndNormalizeSurveyPayload(makeV2026_10Payload({
+    responses: { early_access_interest: 'no', email: 'should_be_discarded@example.com' },
+    routing: { opted_for_contact: true }
+  }));
+
+  assert.equal(validation.ok, true);
+  assert.equal(validation.normalizedPayload.responses.email, null);
+  assert.equal(validation.normalizedPayload.routing.opted_for_contact, false);
+});
+
+test('v2026.10 open_feedback longer than 1000 is truncated', () => {
+  const longText = 'x'.repeat(1205);
+  const validation = validateAndNormalizeSurveyPayload(makeV2026_10Payload({ responses: { open_feedback: longText } }));
+
+  assert.equal(validation.ok, true);
+  assert.equal(validation.normalizedPayload.responses.open_feedback.length, 1000);
+});
+
+test('processor v2026.10 maps new fields and selection rows correctly', async () => {
+  const captured = { inputs: [] };
+  const sqlLib = {
+    MAX: 2147483647,
+    UniqueIdentifier: 'uniqueidentifier',
+    NVarChar: () => 'nvarchar',
+    Bit: 'bit',
+    Request: function Request() {
+      return {
+        input(name, type, value) {
+          captured.inputs.push({ name, value });
+        },
+        async query() {}
+      };
+    },
+    Transaction: function Transaction() {
+      return {
+        async begin() {},
+        async rollback() {},
+        async commit() {}
+      };
+    }
+  };
+
+  const result = await processSurveySubmissionQueue({
+    queueMessage: {
+      ...makeV2026_10Payload(),
+      schema_version: '2026.10',
+      queued_at_utc: '2026-10-18T10:00:00.000Z'
+    },
+    context: createContext(),
+    sqlLib,
+    getPoolFn: async () => ({ connected: true }),
+    ensureNotDuplicateFn: async () => null,
+    resetPoolFn: async () => {},
+    randomUUIDFn: () => '11111111-2222-4333-8444-555555555555'
+  });
+
+  const inputByName = Object.fromEntries(captured.inputs.map((entry) => [entry.name, entry.value]));
+  assert.equal(result.outcome, 'success');
+  assert.equal(inputByName.survey_version, '2026.10');
+  assert.equal(inputByName.debt_duration, 'over_1_year');
+  assert.equal(inputByName.card_situation, 'multiple_balances');
+  assert.equal(inputByName.baseline_apply_intent_90d, 'probably');
+  assert.equal(inputByName.approach_choice, 'keyr_financial_progress');
+  assert.equal(inputByName.outcome_apply_intent, 'very_likely');
+  assert.equal(inputByName.top_conversion_driver, 'interest_savings');
+  assert.equal(inputByName.fee_acceptance, 'depends_on_net_savings');
+  assert.equal(inputByName.next_step, 'review_terms_then_consider');
+  assert.equal(inputByName.early_access_interest, 'yes');
+  assert.equal(inputByName.journey_stage, null);
+  assert.equal(inputByName.current_needs_json, null);
+  assert.equal(inputByName.starting_experience, null);
+  assert.equal(inputByName.trusted_approach, null);
+  assert.equal(inputByName.contact_permission, null);
+  assert.equal(inputByName.opted_for_contact, 1);
+
+  const selectionRows = buildSelectionRows(makeV2026_10Payload().responses, '2026.10');
+  assert.deepEqual(selectionRows.map((row) => row.question_code), ['primary_outcomes', 'primary_outcomes']);
+});
+
+test('processor v2026.09 remains unchanged and uses legacy selection shape', async () => {
+  const resolved = resolveQueueSurveyVersion({ schema_version: '2026.09' });
+  assert.equal(resolved, '2026.09');
+
+  const rows = buildSelectionRows(makeV2026_09Payload().responses, '2026.09');
+  assert.deepEqual(rows, [
+    { question_code: 'current_needs', option_value: 'reduce_interest_costs' },
+    { question_code: 'current_needs', option_value: 'lower_monthly_payments' }
+  ]);
+});
+
+test('v2026.10 duplicate client_submission_id returns duplicate_skipped', async () => {
+  const result = await processSurveySubmissionQueue({
+    queueMessage: {
+      ...makeV2026_10Payload(),
+      schema_version: '2026.10'
+    },
+    context: createContext(),
+    getPoolFn: async () => ({ connected: true }),
+    ensureNotDuplicateFn: async () => 'existing-id',
+    resetPoolFn: async () => {}
+  });
+
+  assert.equal(result.outcome, 'duplicate_skipped');
+});
+
+test('v2026.10 rollback occurs when a selection insert fails', async () => {
+  let rollbackCalled = false;
+  let queryCount = 0;
+
+  const sqlLib = {
+    MAX: 2147483647,
+    UniqueIdentifier: 'uniqueidentifier',
+    NVarChar: () => 'nvarchar',
+    Bit: 'bit',
+    Request: function Request() {
+      return {
+        input() {},
+        async query() {
+          queryCount += 1;
+          if (queryCount === 2) {
+            throw new Error('selection insert failed');
+          }
+        }
+      };
+    },
+    Transaction: function Transaction() {
+      return {
+        async begin() {},
+        async rollback() { rollbackCalled = true; },
+        async commit() {}
+      };
+    }
+  };
+
+  await assert.rejects(
+    () => processSurveySubmissionQueue({
+      queueMessage: {
+        ...makeV2026_10Payload(),
+        schema_version: '2026.10'
+      },
+      context: createContext(),
+      sqlLib,
+      getPoolFn: async () => ({ connected: true }),
+      ensureNotDuplicateFn: async () => null,
+      resetPoolFn: async () => {}
+    }),
+    /selection insert failed/
+  );
+
+  assert.equal(rollbackCalled, true);
 });
 
 test('queue parser accepts object and string payloads', () => {
@@ -465,6 +809,77 @@ test('normal nonduplicate processing error is rethrown for retry or poison-queue
     }),
     /unexpected validation failure/
   );
+});
+
+test('invalid queue message warns with safe metadata and rethrows for retry', async () => {
+  const warns = [];
+  const sqlLib = {
+    MAX: 2147483647,
+    UniqueIdentifier: 'uniqueidentifier',
+    NVarChar: () => 'nvarchar',
+    Bit: 'bit',
+    Request: function Request() {
+      return {
+        input() {},
+        async query() {}
+      };
+    },
+    Transaction: function Transaction() {
+      return {
+        async begin() {},
+        async rollback() {},
+        async commit() {}
+      };
+    }
+  };
+
+  const context = {
+    bindingData: { dequeueCount: 1 },
+    log: () => {},
+    warn: (message, details) => warns.push({ message, details }),
+    error: () => {}
+  };
+
+  await assert.rejects(
+    () => processSurveySubmissionQueue({
+      queueMessage: {
+        client_submission_id: 'abababab-abab-4bab-8bab-abababababab',
+        schema_version: '2026.10',
+        queued_at_utc: '2026-10-17T00:00:00.000Z',
+        responses: {
+          primary_outcomes: [],
+          debt_duration: 'over_1_year',
+          card_situation: 'multiple_balances',
+          baseline_apply_intent_90d: 'probably',
+          approach_choice: 'keyr_financial_progress',
+          outcome_apply_intent: 'very_likely',
+          top_conversion_driver: 'interest_savings',
+          fee_acceptance: 'depends_on_net_savings',
+          next_step: 'review_terms_then_consider',
+          early_access_interest: 'yes',
+          email: 'user@example.com',
+          open_feedback: 'x'
+        },
+        routing: { opted_for_contact: true },
+        metadata: { submitted_at_utc: '2026-10-17T00:00:00.000Z' },
+        source: 'survey',
+        survey_name: 'start_your_path',
+        title: 'Start Your Path'
+      },
+      context,
+      sqlLib,
+      getPoolFn: async () => ({ connected: true }),
+      ensureNotDuplicateFn: async () => null,
+      resetPoolFn: async () => {}
+    }),
+    /Queue message has invalid 2026.10 responses\./
+  );
+
+  assert.equal(warns.length, 1);
+  assert.equal(warns[0].details.client_submission_id, 'abababab-abab-4bab-8bab-abababababab');
+  assert.equal(warns[0].details.resolved_survey_version, '2026.10');
+  assert.equal(warns[0].details.error_category, 'invalid_message');
+  assert.deepEqual(Object.keys(warns[0].details).sort(), ['client_submission_id', 'error_category', 'resolved_survey_version']);
 });
 
 test('duplicate detected before transaction creation returns success without launching transaction or inserts', async () => {
